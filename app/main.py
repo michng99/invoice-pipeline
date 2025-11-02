@@ -1,73 +1,141 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from starlette.middleware.gzip import GZipMiddleware
-import io, asyncio, httpx, xmltodict, pandas as pd, yaml, re
-from typing import List, Optional, Dict, Any
+import io
+from typing import List
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import StreamingResponse, JSONResponse
+import pandas as pd
+import xmltodict
 
-from app.converters.flatten_batch import flatten_invoice, headers
+VERSION = "v2.1-currency-rate"
 
-app = FastAPI(title="XML→JSON→XLSX")
-app.add_middleware(GZipMiddleware, minimum_size=1024)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*", "localhost"])
+app = FastAPI()
 
-MAX_BYTES=5*1024*1024
-PRIVATE= re.compile(r"^(127\\.|10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[0-1])\\.|localhost|169\\.254\\.169\\.254)")
+def _fnum(x, default=0.0):
+    try:
+        return float(str(x).replace(",", ""))
+    except:
+        return default
+
+def _ttin(ttkhac, key):
+    if not ttkhac:
+        return ""
+    items = ttkhac.get("TTin", [])
+    if isinstance(items, dict):
+        items = [items]
+    for it in items:
+        if it.get("TTruong") == key:
+            return it.get("DLieu", "")
+    return ""
+
+def _note(raw: str):
+    if "Điều chỉnh cho hóa đơn" in raw or "Điều chỉnh cho hoá đơn" in raw:
+        return "Hoá đơn điều chỉnh"
+    if "Thay thế cho hóa đơn" in raw or "Thay thế cho hoá đơn" in raw:
+        return "Hoá đơn thay thế"
+    return "Hoá đơn mới"
+
+HEADERS = [
+    "Mẫu số","KH hóa đơn","Số hóa đơn","Ngày hóa đơn",
+    "MST người bán","Tên người bán","ĐC người bán",
+    "Mã hàng","Tên hàng",
+    "Đơn vị tính","Số lượng","Đơn giá","Tiền hàng",
+    "Thuế suất","Tiền thuế","Cộng tiền",
+    "Ghi chú","Đơn vị tiền","Tỷ giá"
+]
+
+def flatten(doc: dict):
+    hdon = doc.get("HDon", {})
+    dlh  = hdon.get("DLHDon", {})
+    ttch = dlh.get("TTChung", {})
+    nd   = dlh.get("NDHDon", {})
+    ds   = nd.get("DSHHDVu", {}).get("HHDVu", [])
+    if isinstance(ds, dict):
+        ds = [ds]
+
+    # cấu hình làm tròn
+    ttk_root = dlh.get("TTKhac", {})
+    dec_money = int(_fnum(_ttin(ttk_root, "AmountDecimalDigits") or 0, 0))
+    dec_rate  = int(_fnum(_ttin(ttk_root, "ExchangRateDecimalDigits") or 2, 2))
+
+    # Thuế suất chuẩn hoá
+    rate_tax = 0.08
+
+    # Đơn vị tiền & Tỷ giá từ TTChung
+    dvtt = ttch.get("DVTTe", "")
+    tgia = _fnum(ttch.get("TGia", 1.0), 1.0)
+
+    rows = []
+    note = _note(str(doc))
+
+    for it in ds:
+        # chỉ lấy dòng hàng hoá
+        if str(it.get("TChat", "")).strip() != "1":
+            continue
+
+        ms   = ttch.get("KHMSHDon", "")
+        kh   = ttch.get("KHHDon", "")
+        sohd = ttch.get("SHDon", "")
+        ngay = ttch.get("NLap", "")
+
+        nban = nd.get("NBan", {})
+        mst_ban = nban.get("MST","")
+        ten_ban = nban.get("Ten","")
+        dc_ban  = nban.get("DChi","")
+
+        mahang  = it.get("MHHDVu","")
+        tenhang = it.get("THHDVu","")
+        dvt = it.get("DVTinh","")
+        sl  = _fnum(it.get("SLuong",0))
+        dongia = _fnum(it.get("DGia",0))
+        thtien = _fnum(it.get("ThTien",0))
+
+        # VAT & Cộng tiền
+        vat_amount = round(thtien * rate_tax, dec_money)
+        up_after_tax = _fnum(_ttin(it.get("TTKhac", {}),"UnitPriceAfterTax") or 0)
+        if up_after_tax>0 and sl>0:
+            total = round(up_after_tax*sl, dec_money)
+        else:
+            total = round(thtien + vat_amount, dec_money)
+
+        row = [
+            ms, kh, sohd, ngay,
+            mst_ban, ten_ban, dc_ban,
+            mahang, tenhang,
+            dvt, sl, round(dongia, dec_money), round(thtien, dec_money),
+            rate_tax, vat_amount, total,
+            note, dvtt, round(tgia, dec_rate)
+        ]
+        rows.append(row)
+    return rows
+
+def to_df(all_rows: list) -> pd.DataFrame:
+    df = pd.DataFrame(all_rows, columns=HEADERS)
+    return df
 
 @app.get("/health")
-def health(): return {"ok": True}
+def health():
+    return {"ok": True, "version": VERSION}
 
-def parse_xml(text:str)->Dict[str,Any]:
-    return xmltodict.parse(text)
-
-def load_schema(p="app/schemas/schema.yaml"):
-    with open(p,"r",encoding="utf-8") as f: return yaml.safe_load(f)
+@app.get("/debug/columns")
+def debug_columns():
+    return {"version": VERSION, "columns": HEADERS}
 
 @app.post("/pipeline/xml-to-xlsx")
-async def pipeline(
-    schema_name: str = Form("schema.yaml"),
-    xml_files: Optional[List[UploadFile]] = File(None),
-    xml_urls: Optional[List[str]] = Form(None),
-):
-    invoices=[]
-    # URLs
-    if xml_urls:
-        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
-            tasks=[]
-            for u in xml_urls:
-                if not u.startswith(("http://","https://")) or PRIVATE.search(u):
-                    raise HTTPException(400, "Invalid URL")
-                tasks.append(client.get(u))
-            res = await asyncio.gather(*tasks, return_exceptions=True)
-            for r in res:
-                if isinstance(r, Exception) or r.status_code!=200:
-                    raise HTTPException(502, "Fetch URL failed")
-                if int(r.headers.get("content-length","0"))>MAX_BYTES:
-                    raise HTTPException(413,"Payload too large")
-                invoices.append(parse_xml(r.text))
-    # Files
-    if xml_files:
-        for f in xml_files:
-            if not f.filename.lower().endswith(".xml"):
-                raise HTTPException(400, "Only .xml allowed")
-            data = await f.read()
-            if len(data)>MAX_BYTES: raise HTTPException(413,"Payload too large")
-            invoices.append(parse_xml(data.decode("utf-8",errors="ignore")))
+async def xml_to_xlsx(xml_files: List[UploadFile] = File(...)):
+    all_rows = []
+    for f in xml_files:
+        content = await f.read()
+        doc = xmltodict.parse(content)
+        all_rows += flatten(doc)
 
-    if not invoices: raise HTTPException(400,"No XML provided")
-
-    schema = load_schema(f"app/schemas/{schema_name}")
-    rows=[]
-    for inv in invoices:
-        rows += flatten_invoice(inv, schema)
-
-    df = pd.DataFrame(rows, columns=headers(schema))
-    buf=io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as w:
-        df.to_excel(w, index=False, sheet_name=schema["xlsx"].get("sheet_name","Data"))
-    buf.seek(0)
+    df = to_df(all_rows)
+    bio = io.BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="Data")
+    bio.seek(0)
     return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="converted.xlsx"'}
+        bio,
+        headers={
+            "Content-Disposition": 'attachment; filename="Data.xlsx"',
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
     )
