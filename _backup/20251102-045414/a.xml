@@ -1,0 +1,20 @@
+<HDon><DLHDon>
+<TTChung><KHMSHDon>1</KHMSHDon><KHHDon>C25TTT</KHHDon><SHDon>5170</SHDon><NLap>2025-04-07</NLap><DVTTe>VND</DVTTe><TGia>1</TGia></TTChung>
+<NDHDon><NBan><MST>03111814</MST><Ten>CTY ABC</Ten><DChi>Q11, TP.HCM</DChi></NBan>
+<DSHHDVu>
+  <HHDVu>
+    <MHHDVu>SF1709</MHHDVu><THHDVu>Dây YAMATA</THHDVu><DVTinh>Cuộn</DVTinh>
+    <SLuong>5</SLuong><DGia>18900</DGia><ThTien>94500</ThTien>
+    <TTKhac>
+      <TTin><TTruong>UnitPriceAfterTax</TTruong><DLieu>20412</DLieu></TTin>
+      <TTin><TTruong>amount decimal digits</TTruong><DLieu>0</DLieu></TTin>
+      <TTin><TTruong>vat digits</TTruong><DLieu>0</DLieu></TTin>
+      <TTin><TTruong>TChat</TTruong><DLieu>0</DLieu></TTin>
+    </TTKhac>
+  </HHDVu>
+  <HHDVu>
+    <MHHDVu>BAN</MHHDVu><THHDVu>Dòng bị chặn</THHDVu>
+    <SLuong>1</SLuong><DGia>1</DGia><ThTien>1</ThTien>
+    <TTKhac><TTin><TTruong>TChat</TTruong><DLieu>1</DLieu></TTin></TTKhac>
+  </HHDVu>
+</DSHHDVu></NDHDon></DLHDon></HDon>

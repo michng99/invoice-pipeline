@@ -1,0 +1,175 @@
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import StreamingResponse, JSONResponse
+import uvicorn, io, zipfile, xmltodict, pandas as pd
+from typing import List, Dict, Any, Iterable
+
+app = FastAPI(title="Invoice Pipeline", version="v2.2-currency-rate")
+
+# --- helpers -------------------------------------------------------
+def ensure_list(x):
+    if x is None: return []
+    if isinstance(x, list): return x
+    return [x]
+
+def dig(d: Dict[str, Any], path: str, default=None):
+    """JSONPath-lite: 'a.b.c'"""
+    cur = d
+    for p in path.split("."):
+        if isinstance(cur, list):
+            try:
+                p_idx = int(p)
+                cur = cur[p_idx]
+            except:
+                return default
+        else:
+            if not isinstance(cur, dict) or p not in cur: return default
+            cur = cur[p]
+    return cur
+
+def tt_khac_get(doc: Dict[str, Any], key: str, default=None):
+    """Lấy TTKhac/TTin theo TTruong=key ở 2 cấp: item & toàn hoá đơn"""
+    def get_from(node):
+        tts = dig(node, "TTKhac.TTin")
+        for t in ensure_list(tts):
+            if str(dig(t, "TTruong", "")).strip().lower() == key.lower():
+                return dig(t, "DLieu")
+        return None
+    return get_from(doc) or get_from(doc.get("DLHDon", {})) or default
+
+# --- schema cột ----------------------------------------------------
+COLUMNS = [
+    ("Mẫu số",            "DLHDon.TTChung.KHMSHDon"),
+    ("KH hóa đơn",        "DLHDon.TTChung.KHHDon"),
+    ("Số hóa đơn",        "DLHDon.TTChung.SHDon"),
+    ("Ngày hóa đơn",      "DLHDon.TTChung.NLap"),
+    ("MST người bán",     "DLHDon.NDHDon.NBan.MST"),
+    ("Tên người bán",     "DLHDon.NDHDon.NBan.Ten"),
+    ("ĐC người bán",      "DLHDon.NDHDon.NBan.DChi"),
+    ("Mã hàng",           "MHHDVu"),
+    ("Tên hàng",          "THHDVu"),
+    ("Đơn vị tính",       "DVTinh"),
+    ("Số lượng",          "SLuong"),
+    ("Đơn giá",           "DGia"),
+    ("Tiền hàng",         "ThTien"),
+    ("Thuế suất",         None),     # 0.08 chuẩn hoá
+    ("Tiền thuế",         None),     # tự tính
+    ("Cộng tiền",         None),     # UnitPriceAfterTax * SL nếu có, else ThTien + VAT
+    ("Ghi chú",           None),     # Hoá đơn mới/điều chỉnh/thay thế
+    ("Đơn vị tiền",       "DLHDon.TTChung.DVTTe"),  # <-- lấy từ header
+    ("Tỷ giá",            "DLHDon.TTChung.TGia"),   # <-- lấy từ header
+]
+
+def tax_rate(doc: Dict[str, Any]) -> float:
+    # Chuẩn hoá = 0.08 (theo yêu cầu)
+    return 0.08
+
+def decimals(doc: Dict[str, Any]):
+    """Số lẻ cho tiền & VAT theo TTKhac; mặc định: tiền=0, VAT=0"""
+    amt_digits = tt_khac_get(doc, "AmountDecimalDigits", "0")
+    vat_digits = tt_khac_get(doc, "VatDecimalDigits", "0")
+    try: amt = int(str(amt_digits))
+    except: amt = 0
+    try: vat = int(str(vat_digits))
+    except: vat = 0
+    return amt, vat
+
+def is_adjustment(text: str) -> str:
+    s = (text or "").lower()
+    if "thay thế cho hóa đơn" in s or "thay the cho hoa don" in s:
+        return "Hoá đơn thay thế"
+    if "điều chỉnh cho hóa đơn" in s or "dieu chinh cho hoa don" in s:
+        return "Hoá đơn điều chỉnh"
+    return "Hoá đơn mới"
+
+def items_of(doc: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+    items = dig(doc, "DLHDon.NDHDon.DSHHDVu.HHDVu")
+    for it in ensure_list(items):
+        # chỉ lấy TChat==1 (hàng hoá/dịch vụ)
+        if str(it.get("TChat", "1")).strip() == "1":
+            yield it
+
+def row_from(doc: Dict[str, Any], item: Dict[str, Any]) -> Dict[str, Any]:
+    amt_digits, vat_digits = decimals(doc)
+    rate = tax_rate(doc)
+    # UnitPriceAfterTax nếu có
+    uat = tt_khac_get(item, "UnitPriceAfterTax")
+    try:
+        sl = float(str(item.get("SLuong", "0")) or 0)
+    except:
+        sl = 0.0
+    try:
+        dg = float(str(item.get("DGia", "0")) or 0)
+    except:
+        dg = 0.0
+    try:
+        th = float(str(item.get("ThTien", "0")) or 0)
+    except:
+        th = 0.0
+
+    if uat is not None and str(uat) != "":
+        try:
+            uatv = float(str(uat))
+            cong_tien = round(uatv * sl, amt_digits)
+            tien_thue = round(cong_tien - (cong_tien / (1 + rate)), vat_digits)
+        except:
+            cong_tien = round(th * (1 + rate), amt_digits)
+            tien_thue = round(th * rate, vat_digits)
+    else:
+        tien_thue = round(th * rate, vat_digits)
+        cong_tien = round(th + tien_thue, amt_digits)
+
+    # Ghi chú (điều chỉnh/thay thế/mới)
+    raw_all = io.StringIO()
+    raw_all.write(str(doc))
+    gchu = is_adjustment(raw_all.getvalue())
+
+    row = {}
+    for header, path in COLUMNS:
+        if header == "Thuế suất":
+            row[header] = rate
+        elif header == "Tiền thuế":
+            row[header] = tien_thue
+        elif header == "Cộng tiền":
+            row[header] = cong_tien
+        elif header == "Ghi chú":
+            row[header] = gchu
+        elif path:
+            # path có thể bám vào item hoặc header
+            val = dig(item, path)
+            if val is None:
+                val = dig(doc, path)
+            row[header] = val if val is not None else ""
+        else:
+            row[header] = ""
+    return row
+
+def parse_xml(content: bytes) -> Dict[str, Any]:
+    return xmltodict.parse(content).get("HDon", {})
+
+# --- endpoints -----------------------------------------------------
+@app.get("/health")
+def health():
+    return {"ok": True, "version": app.version}
+
+@app.get("/debug/columns")
+def dbg_cols():
+    return JSONResponse([c[0] for c in COLUMNS])
+
+@app.post("/pipeline/xml-to-xlsx")
+async def xml_to_xlsx(xml_files: List[UploadFile] = File(...)):
+    rows = []
+    for f in xml_files:
+        doc = parse_xml(await f.read())
+        for it in items_of(doc):
+            rows.append(row_from(doc, it))
+
+    df = pd.DataFrame(rows, columns=[c[0] for c in COLUMNS])
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
+        df.to_excel(w, index=False, sheet_name="Data")
+    buf.seek(0)
+    headers = {
+        "Content-Disposition": 'attachment; filename="converted.xlsx"',
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    return StreamingResponse(buf, headers=headers)

@@ -1,8 +1,0 @@
-HTTP/1.1 200 OK
-date: Sat, 01 Nov 2025 16:44:19 GMT
-server: uvicorn
-content-disposition: attachment; filename="converted.xlsx"
-content-type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-vary: Accept-Encoding
-transfer-encoding: chunked
-

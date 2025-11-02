@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>XML → XLSX (Internal)</title>
+<style>body{font:14px/1.4 system-ui;margin:40px} .card{max-width:640px;margin:auto;padding:24px;border:1px solid #eee;border-radius:12px}</style>
+<div class="card">
+  <h2>XML → XLSX Converter (Internal)</h2>
+  <form method="post" action="/pipeline/xml-to-xlsx" enctype="multipart/form-data">
+    <p><input type="file" name="xml_files" multiple accept=".xml"></p>
+    <button type="submit">Convert</button>
+  </form>
+  <p style="color:#888">Service private (khi deploy Cloud Run cần ID Token).</p>
+</div>
