@@ -1,0 +1,48 @@
+xlsx:
+  sheet_name: Data
+  explode:
+    base: "$.HDon.DLHDon.NDHDon.DSHHDVu.HHDVu[*]"
+  defaults:
+    decimals_money: 0
+    decimals_vat: 0
+  columns:
+    - header: "Mẫu số"
+      path: "$.HDon.DLHDon.TTChung.KHMSHDon"
+    - header: "KH hóa đơn"
+      path: "$.HDon.DLHDon.TTChung.KHHDon"
+    - header: "Số hóa đơn"
+      path: "$.HDon.DLHDon.TTChung.SHDon"
+    - header: "Ngày hóa đơn"
+      path: "$.HDon.DLHDon.TTChung.NLap"
+    - header: "MST người bán"
+      path: "$.HDon.DLHDon.NDHDon.NBan.MST"
+    - header: "Tên người bán"
+      path: "$.HDon.DLHDon.NDHDon.NBan.Ten"
+    - header: "ĐC người bán"
+      path: "$.HDon.DLHDon.NDHDon.NBan.DChi"
+    - header: "Mã hàng"
+      path: "$.MHHDVu"
+    - header: "Tên hàng"
+      path: "$.THHDVu"
+    - header: "Đơn vị tính"
+      path: "$.DVTinh"
+    - header: "Số lượng"
+      path: "$.SLuong"
+      type: float
+    - header: "Đơn giá"
+      path: "$.DGia"
+      type: float
+    - header: "Tiền hàng"
+      path: "$.ThTien"
+      type: float
+    - header: "Thuế suất"
+      constant: 0.08
+      type: float
+    - header: "Tiền thuế"
+      compute: "VAT"
+      type: float
+    - header: "Cộng tiền"
+      compute: "TOTAL"
+      type: float
+    - header: "Ghi chú"
+      compute: "NOTE"
