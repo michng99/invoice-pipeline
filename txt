@@ -1,0 +1,104 @@
+# === 0) VỀ THƯ MỤC REPO & BẬT VENV
+cd ~/invoice-pipeline || { echo "❌ Không thấy ~/invoice-pipeline"; exit 1; }
+python3 -m venv .venv 2>/dev/null || true
+source .venv/bin/activate
+
+# === 1) CÀI LIB CHO FE
+python -m pip -q install --upgrade pip
+python -m pip -q install streamlit==1.39.0 pandas requests \
+  google-auth google-auth-oauthlib google-auth-httplib2 \
+  openpyxl XlsxWriter
+
+# === 2) TẠO THƯ MỤC FE + FILE CẤU HÌNH
+mkdir -p fe/.streamlit
+cat > fe/.streamlit/config.toml <<'CFG'
+[server]
+enableCORS = false
+enableXsrfProtection = false
+headless = true
+port = 8080
+address = "0.0.0.0"
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base="dark"
+primaryColor="#08c19d"
+CFG
+
+# === 3) TẠO ỨNG DỤNG STREAMLIT (UI upload & convert)
+cat > fe/streamlit_app.py <<'PY'
+import io, os, requests
+import streamlit as st
+
+st.set_page_config(page_title="Invoice Pipeline – Upload & Convert", layout="wide")
+
+# --- Backend URL ---
+DEFAULT_BACKEND = os.getenv("BACKEND_URL", "https://invoice-pipeline-160913806.asia-southeast1.run.app")
+with st.expander("🔌 Kết nối Backend", expanded=True):
+    backend = st.text_input("Backend:", value=DEFAULT_BACKEND, placeholder="https://<cloud-run>.a.run.app")
+    colb1, colb2 = st.columns([1,6])
+    with colb1:
+        if st.button("Kiểm tra /health"):
+            try:
+                r = requests.get(f"{backend.rstrip('/')}/health", timeout=10)
+                st.success(f"OK {r.status_code}: {r.text}")
+            except Exception as e:
+                st.error(f"Health check lỗi: {e}")
+    with colb2:
+        st.caption("Nhập đúng Cloud Run URL của API. Ví dụ: https://invoice-pipeline-xxxxx-a-uc.a.run.app")
+
+st.markdown("---")
+
+# --- Upload zone ---
+st.subheader("Chọn nhiều XML (d1…d5,…)")
+uploaded = st.file_uploader("Drag & Drop XML hoặc bấm 'Browse files'", type=["xml"], accept_multiple_files=True, label_visibility="collapsed")
+merge = st.checkbox("Gộp nhiều file thành 1 Excel", value=True)
+
+# --- Convert button ---
+col1, col2 = st.columns([1,6])
+with col1:
+    go = st.button("🚀 Convert")
+with col2:
+    st.caption("Backend endpoint: /pipeline/xml-to-xlsx")
+
+# --- Logic ---
+if go:
+    if not backend:
+        st.error("Chưa nhập Backend URL.")
+        st.stop()
+    if not uploaded:
+        st.warning("Chưa chọn file XML.")
+        st.stop()
+
+    st.info(f"Đang upload {len(uploaded)} file → {backend}")
+    files = []
+    for f in uploaded:
+        files.append(("xml_files", (f.name, f.getvalue(), "application/xml")))
+
+    # query merge (nếu backend có hỗ trợ). Nếu không cần, vẫn OK.
+    params = {"merge": "1" if merge else "0"}
+    try:
+        with st.spinner("Đang xử lý…"):
+            url = f"{backend.rstrip('/')}/pipeline/xml-to-xlsx"
+            r = requests.post(url, files=files, params=params, timeout=120)
+            if r.status_code != 200:
+                st.error(f"Backend trả về {r.status_code}: {r.text[:4000]}")
+            else:
+                out_name = "Data.xlsx" if merge else "Data.zip"
+                st.success("✅ Convert xong!")
+                st.download_button("📥 Tải kết quả", data=r.content, file_name=out_name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except Exception as e:
+        st.error(f"Lỗi gọi API: {e}")
+
+# Footer
+st.caption("© Invoice Pipeline – Streamlit FE")
+PY
+
+# === 4) SET BACKEND URL (THAY BẰNG URL THẬT CỦA EM)
+export BACKEND_URL="https://YOUR-BACKEND-URL.a.run.app"
+
+# === 5) CHẠY FE (KILL PORT CŨ NẾU CÓ)
+pkill -f "streamlit run" 2>/dev/null || true
+python -m streamlit run fe/streamlit_app.py

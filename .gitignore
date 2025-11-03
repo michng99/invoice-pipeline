@@ -1,5 +1,32 @@
+# Python / venv / cache
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+
+# Streamlit
+.streamlit/
+fe/.streamlit/secrets.toml
+
+# Node/Frontend (nếu có sau này)
+node_modules/
+
+# OS noise
 .DS_Store
-.env
+Thumbs.db
+
+# Build / output / artifacts / tạm
+out/
+*.xlsx
+*.xlsm
+Data*.xlsx
+Data-*.xlsx
+*.zip
+*.log
+
+# IDE
+.vscode/
+.idea/
