@@ -5,8 +5,11 @@ ROOT="$HOME/invoice-pipeline"
 cd "$ROOT"
 
 # 1) Venv + install deps
-python3 -m venv .venv 2>/dev/null || true
-source .venv/bin/activate
+if [[ ! -d ".venv" ]]; then
+  echo "▶️  Creating virtual environment '.venv'..."
+  python3 -m venv .venv
+fi
+source .venv/bin/activate || { echo "❌ Failed to activate virtualenv."; exit 1; }
 python -m pip -q install --upgrade pip
 python -m pip -q install -r requirements.txt \
   fastapi "uvicorn[standard]" pandas xmltodict XlsxWriter openpyxl python-multipart \
@@ -22,6 +25,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&
 
 # 4) Chờ /health OK
 echo "⏳  Wait backend /health ..."
+export no_proxy="127.0.0.1,localhost"
 for i in {1..40}; do
   if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
     echo "✅ Backend OK"
