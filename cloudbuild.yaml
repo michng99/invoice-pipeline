@@ -1,0 +1,40 @@
+# Cloud Build: build & deploy FE (Streamlit) lên Cloud Run
+# Giả định Dockerfile và app (streamlit_app.py, requirements.txt) nằm ở repo root.
+# Nếu em để trong thư mục fe/, sửa lại bước build: "docker build -f fe/Dockerfile fe"
+
+substitutions:
+  _REGION: asia-southeast1
+  _SERVICE: invoice-fe
+  _REPO: invoice-pipeline
+
+steps:
+  # Build image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:${SHORT_SHA}', '.']
+
+  # Push image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:${SHORT_SHA}']
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    entrypoint: gcloud
+    args:
+      [
+        'run', 'deploy', '$_SERVICE',
+        '--image', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:${SHORT_SHA}',
+        '--region', '$_REGION',
+        '--platform', 'managed',
+        '--allow-unauthenticated',
+        '--cpu', '1',
+        '--memory', '512Mi',
+        '--port', '8080',
+        # Truyền BACKEND_URL nếu muốn cố định trong môi trường deploy:
+        # '--set-env-vars', 'BACKEND_URL=https://invoice-pipeline-160913806.asia-southeast1.run.app'
+      ]
+
+images:
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:${SHORT_SHA}'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
