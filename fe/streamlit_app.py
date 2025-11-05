@@ -150,3 +150,22 @@ if col1.button("🚀 Convert", type="primary"):
     st.download_button("⬇️ Download", data=resp.content, file_name=filename, mime=mime, use_container_width=True)
 
 st.caption("Tip: URL backend được lưu ở `fe/.streamlit/secrets.toml`. Có thể set nhanh bằng `BACKEND_URL`.")
+
+# === FOOTER_2025_COPYRIGHT ===
+def _render_footer():
+    import streamlit as st
+    FOOTER_HTML = """
+    <div style="margin-top:48px; padding-top:8px; text-align:center; font-size:13px; opacity:0.75">
+        &copy; 2025 <strong>Chuong Minh. All rights reserved.</strong> &middot;
+        <a href="https://m.me/michng99" target="_blank" rel="noopener noreferrer">
+            Messenger
+        </a>
+    </div>
+    """
+    st.markdown(FOOTER_HTML, unsafe_allow_html=True)
+
+# Tự động vẽ footer ở cuối trang dù app có return sớm
+try:
+    _render_footer()
+except Exception:
+    pass
