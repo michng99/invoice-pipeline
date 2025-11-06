@@ -1,171 +1,186 @@
 from __future__ import annotations
-import os, re, typing as t
+import io, os, time
 from pathlib import Path
+from typing import Dict, Any, List, Tuple
 import requests
 import streamlit as st
 
-try:
-    import tomllib  # py3.11+
-except Exception:
-    tomllib = None
+st.set_page_config(page_title="Invoice Pipeline – Upload & Convert", layout="wide")
+TTL_SECONDS = 5 * 60
+AUTO_REFRESH_MS = 30_000
 
-APP_DIR = Path(__file__).resolve().parent
-SECRETS_DIR = APP_DIR / ".streamlit"
+SECRETS_DIR  = (Path(__file__).parent / ".streamlit")
 SECRETS_FILE = SECRETS_DIR / "secrets.toml"
-BACKEND_ENV = os.getenv("BACKEND_URL", "").strip()
 
-def _read_secrets_file() -> dict:
-    if not SECRETS_FILE.exists():
+def _read_toml_text(p: Path) -> Dict[str, Any]:
+    try:
+        if not p.exists():
+            return {}
+        try:
+            import tomllib
+            return tomllib.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            import tomli
+            return tomli.loads(p.read_text(encoding="utf-8"))
+    except Exception:
         return {}
-    if tomllib is None:
-        txt = SECRETS_FILE.read_text(encoding="utf-8")
-        for line in txt.splitlines():
-            line = line.strip()
-            if line.startswith("backend_url"):
-                val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                return {"backend_url": val}
-        return {}
-    with open(SECRETS_FILE, "rb") as f:
-        return tomllib.load(f)
 
-def load_backend_url() -> str:
-    # Thứ tự ưu tiên: session -> st.secrets -> file -> env
-    if "backend_url" in st.session_state and st.session_state["backend_url"]:
-        return st.session_state["backend_url"]
-    url = st.secrets.get("backend_url", "")
-    if url:
-        st.session_state["backend_url"] = url
-        return url
-    data = _read_secrets_file()
-    url = data.get("backend_url", "")
-    if url:
-        st.session_state["backend_url"] = url
-        return url
-    if BACKEND_ENV:
-        st.session_state["backend_url"] = BACKEND_ENV
-        return BACKEND_ENV
+def _write_backend_url(url: str) -> None:
+    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    SECRETS_FILE.write_text(f'backend_url = "{url.strip()}"\n', encoding="utf-8")
+
+def _resolve_backend_url() -> str:
+    env = os.environ.get("BACKEND_URL", "").strip()
+    if env:
+        return env
+    toml = _read_toml_text(SECRETS_FILE)
+    if "backend_url" in toml and str(toml["backend_url"]).strip():
+        return str(toml["backend_url"]).strip()
     return ""
 
-def save_backend_url(url: str):
-    url = (url or "").strip()
-    if not (url.startswith("http://") or url.startswith("https://")):
-        st.error("Vui lòng nhập URL hợp lệ.")
-        return
+def _join(base: str, path: str) -> str:
+    return base.rstrip("/") + (path if path.startswith("/") else f"/{path}")
 
-    # Tạo thư mục và lưu lại vào secrets.toml để nhớ giữa các lần mở app
-    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
-    SECRETS_FILE.write_text(f'backend_url = "{url}"\n', encoding="utf-8")
+def _init_state():
+    if "uploads" not in st.session_state:
+        st.session_state["uploads"] = {}
+    if "last_activity" not in st.session_state:
+        st.session_state["last_activity"] = time.time()
 
-    # Cập nhật session_state để dùng ngay trong lần render hiện tại
-    st.session_state["backend_url"] = url
+def _cleanup_ttl() -> int:
+    now = time.time()
+    removed = 0
+    for name, meta in list(st.session_state["uploads"].items()):
+        if now - meta["uploaded_at"] >= TTL_SECONDS:
+            st.session_state["uploads"].pop(name, None)
+            removed += 1
+    return removed
 
-    # Thông báo xong là thôi, KHÔNG rerun để tránh vòng lặp
-    st.success("Đã lưu URL backend. (Không cần tải lại trang)")
-    st.info("Nếu giao diện chưa phản ánh URL mới, bấm **Kiểm tra /health** hoặc Refresh trình duyệt là được.")
+def _fmt_left(ts: float) -> str:
+    left = max(0, TTL_SECONDS - int(time.time() - ts))
+    m, s = divmod(left, 60)
+    return f"{m:02d}:{s:02d}"
 
-def check_health(base_url: str) -> tuple[int | None, str]:
-    if not base_url:
-        return None, "Chưa có Backend URL."
-    url = base_url.rstrip("/") + "/health"
-    try:
-        r = requests.get(url, timeout=15)
-        return r.status_code, r.text
-    except Exception as e:
-        return None, f"ERROR: {e}"
+def _add_uploads(files: List) -> tuple[list[str], list[str]]:
+    added, replaced = [], []
+    for f in files or []:
+        name = Path(f.name).name.strip()
+        data = f.read()
+        existed = name in st.session_state["uploads"]
+        st.session_state["uploads"][name] = {
+            "data": data,
+            "size": len(data),
+            "uploaded_at": time.time(),
+        }
+        if existed:
+            replaced.append(name)
+        else:
+            added.append(name)
+    st.session_state["last_activity"] = time.time()
+    return added, replaced
 
-def call_convert(base_url: str, files: list[st.runtime.uploaded_file_manager.UploadedFile], merge_to_one: bool) -> requests.Response:
-    if not base_url:
-        raise RuntimeError("Chưa cấu hình Backend URL.")
-    endpoint = base_url.rstrip("/") + "/pipeline/xml-to-xlsx"
-    form_files: list[tuple[str, tuple[str, bytes, str]]] = []
-    for f in files:
-        content = f.getvalue()
-        form_files.append(("xml_files", (f.name, content, "application/xml")))
-    data = {"merge_to_one": "true" if merge_to_one else "false"}
-    return requests.post(endpoint, files=form_files, data=data, timeout=300)
+def _clear_all():
+    st.session_state["uploads"].clear()
+    st.session_state["last_activity"] = time.time()
 
-def parse_filename_from_headers(resp: requests.Response, fallback: str) -> str:
-    cd = resp.headers.get("content-disposition", "")
-    m = re.search(r'filename="([^"]+)"', cd)
-    return m.group(1) if m else fallback
-
-# ---------------------- UI ----------------------
-st.set_page_config(page_title="Invoice Pipeline", layout="wide")
 st.title("🧾 Invoice Pipeline – Upload & Convert")
 
+autoref = getattr(st, "autorefresh", None) or getattr(st, "st_autorefresh", None)
+if autoref:
+    autoref(interval=AUTO_REFRESH_MS, key="auto_gc")
+
 with st.expander("🔌 Kết nối Backend", expanded=True):
-    current_url = load_backend_url()
-    url_input = st.text_input("Backend URL", value=current_url, placeholder="https://<service>-<hash>-<region>.a.run.app")
-    colA, colB, colC = st.columns([1, 1, 4], gap="small")
-    if colA.button("💾 Lưu URL", use_container_width=True):
-        if not url_input.strip():
-            st.error("Vui lòng nhập URL hợp lệ.")
-        else:
-            save_backend_url(url_input)
-    if colB.button("🩺 Kiểm tra /health", use_container_width=True):
-        backend_url_to_check = load_backend_url()
-        status, text = check_health(backend_url_to_check)
-        if status is None:
-            st.error(text)
-        elif status == 200:
-            st.success(f"200 OK — {text}")
-        else:
-            st.warning(f"{status} — {text}")
-    if current_url:
-        colC.info(f"Đang dùng: **{current_url}**")
-    else:
-        colC.warning("Chưa có Backend URL. Hãy nhập và bấm **Lưu URL**.")
+    backend_url_input = st.text_input(
+        "Backend URL",
+        value=_resolve_backend_url(),
+        placeholder="https://<service>-<hash>-<region>.a.run.app",
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("💾 Lưu URL"):
+            if backend_url_input.strip().startswith("http"):
+                _write_backend_url(backend_url_input.strip())
+                st.success("Đã lưu URL backend.")
+            else:
+                st.error("Vui lòng nhập URL hợp lệ.")
+    with c2:
+        if st.button("🔗 Kiểm tra /health"):
+            url = backend_url_input.strip()
+            if not url:
+                st.error("Chưa có Backend URL.")
+            else:
+                try:
+                    r = requests.get(_join(url, "/health"), timeout=12)
+                    st.info(f"Response: {r.status_code} — {r.text[:500]}")
+                except Exception as e:
+                    st.error(f"Response: None — {e!r}")
+    if backend_url_input.strip():
+        st.info("Đang dùng: " + backend_url_input.strip())
 
-st.divider()
+_init_state()
+removed = _cleanup_ttl()
+if removed:
+    st.info(f"🧹 Đã xoá {removed} file hết hạn (TTL {TTL_SECONDS//60} phút).")
+
 st.subheader("Chọn nhiều XML (d1…d5, …)")
-uploaded = st.file_uploader("Drag & drop hoặc Browse XML", type=["xml"], accept_multiple_files=True, label_visibility="collapsed")
-merge_one = st.checkbox("Gộp nhiều file thành 1 Excel", value=True)
+files = st.file_uploader("Drag and drop files here", type=["xml"], accept_multiple_files=True)
+if files:
+    added, replaced = _add_uploads(files)
+    if added:
+        st.success("✅ Thêm: " + ", ".join(added))
+    if replaced:
+        st.warning("♻️ Ghi đè: " + ", ".join(replaced))
 
-col1, _ = st.columns([1, 5])
-if col1.button("🚀 Convert", type="primary"):
-    if not uploaded:
-        st.error("Vui lòng chọn ít nhất 1 tệp XML.")
+if st.session_state["uploads"]:
+    import pandas as pd
+    df = pd.DataFrame([
+        {"Tên file": name,
+         "Kích thước (KB)": round(meta["size"]/1024, 1),
+         "Còn lại (mm:ss)": _fmt_left(meta["uploaded_at"])}
+        for name, meta in st.session_state["uploads"].items()
+    ])
+    st.caption("Các file đang giữ tạm (tự xoá sau 5 phút không tương tác):")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    if st.button("🧽 Xoá tất cả file (ngay)"):
+        _clear_all()
+        st.success("Đã xoá tất cả file.")
         st.stop()
-    backend_url = load_backend_url().strip()
-    if not backend_url:
-        st.error("Chưa cấu hình Backend URL.")
-        st.stop()
-    with st.spinner("Đang xử lý…"):
-        try:
-            resp = call_convert(backend_url, uploaded, merge_one)
-        except Exception as e:
-            st.error(f"Không gọi được backend: {e}")
-            st.stop()
+else:
+    st.caption("Chưa có file nào.")
+    merge_to_one = st.checkbox("Gộp nhiều file thành 1 Excel", value=True)
+
+if st.button("🚀 Convert"):
+    backend = (backend_url_input.strip() or _resolve_backend_url())
+    if not backend:
+        st.error("Chưa cấu hình Backend URL."); st.stop()
+    if not st.session_state["uploads"]:
+        st.error("Vui lòng chọn ít nhất 1 tệp XML."); st.stop()
+
+    try:
+        form_files = [
+            ("files", (name, io.BytesIO(meta["data"]), "application/xml"))
+            for name, meta in st.session_state["uploads"].items()
+        ]
+        data = {"merge_to_one": "true" if merge_to_one else "false"}
+        resp = requests.post(_join(backend, "/pipeline/xml-to-xlsx"),
+                             files=form_files, data=data, timeout=120)
+    except Exception as e:
+        st.error(f"Không gọi được backend: {e}"); st.stop()
+
     if resp.status_code != 200:
-        try:
-            msg = resp.json()
-        except Exception:
-            msg = resp.text
-        st.error(f"Lỗi từ backend ({resp.status_code}): {msg}")
-        st.stop()
-    default_name = "Data.xlsx" if (merge_one or len(uploaded) == 1) else "excels.zip"
-    filename = parse_filename_from_headers(resp, fallback=default_name)
-    mime = resp.headers.get("content-type", "application/octet-stream")
-    st.success("Hoàn tất. Bấm nút để tải xuống.")
-    st.download_button("⬇️ Download", data=resp.content, file_name=filename, mime=mime, use_container_width=True)
+        st.error(f"Lỗi từ backend ({resp.status_code}): {resp.text[:500]}"); st.stop()
 
-st.caption("Tip: URL backend được lưu ở `fe/.streamlit/secrets.toml`. Có thể set nhanh bằng `BACKEND_URL`.")
+    ctype = resp.headers.get("Content-Type", "application/octet-stream")
+    cd = resp.headers.get("Content-Disposition", "")
+    fname = "Data.xlsx"
+    if "filename=" in cd:
+        fname = cd.split("filename=")[-1].strip("\"'; ")
+    st.success("✅ Hoàn tất. Bấm nút để tải xuống.")
+    st.download_button("⬇️ Download", data=resp.content, file_name=fname, mime=ctype)
+    _clear_all()
 
-# === FOOTER_2025_COPYRIGHT ===
-def _render_footer():
-    import streamlit as st
-    FOOTER_HTML = """
-    <div style="margin-top:48px; padding-top:8px; text-align:center; font-size:13px; opacity:0.75">
-        &copy; 2025 <strong>Chuong Minh. All rights reserved.</strong> &middot;
-        <a href="https://m.me/michng99" target="_blank" rel="noopener noreferrer">
-            Messenger
-        </a>
-    </div>
-    """
-    st.markdown(FOOTER_HTML, unsafe_allow_html=True)
-
-# Tự động vẽ footer ở cuối trang dù app có return sớm
-try:
-    _render_footer()
-except Exception:
-    pass
+st.markdown("""
+<div style="text-align:center;color:#6c757d;margin-top:32px;">
+  © 2025 Chuong Minh. All rights reserved. ·
+  <a href="https://m.me/michng99" target="_blank">Messenger</a>
+</div>""", unsafe_allow_html=True)
