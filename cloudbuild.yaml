@@ -2,37 +2,23 @@ substitutions:
   _REGION: "asia-southeast1"
   _REPO: "invoice-pipeline"
   _SERVICE: "invoice-fe"
-  _PORT: "8080"
-
+  _TAG: "$SHORT_SHA"
 steps:
-  - name: "gcr.io/cloud-builders/docker"
-    id: "Build image"
-    args:
-      - build
-      - -f
-      - fe/Dockerfile
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
-      - fe
-
-  - name: "gcr.io/cloud-builders/docker"
-    id: "Push image"
-    args:
-      - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
-
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    id: "Deploy to Cloud Run"
-    entrypoint: gcloud
-    args:
-      [
-        "run","deploy","${_SERVICE}",
-        "--image","${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA",
-        "--region","${_REGION}",
-        "--allow-unauthenticated",
-        "--platform","managed",
-        "--port","${_PORT}"
-      ]
-
+- name: 'gcr.io/cloud-builders/docker'
+  id: build
+  args: ['build','-f','fe/Dockerfile','-t','$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG','fe']
+- name: 'gcr.io/cloud-builders/docker'
+  id: push
+  args: ['push','$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG']
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: deploy
+  entrypoint: gcloud
+  args: ['run','deploy','$_SERVICE','--image','$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG','--region','$_REGION','--allow-unauthenticated','--platform','managed']
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+  # Dòng này PHẢI thụt vào 2 dấu cách
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG'
+
+# --- ĐÂY LÀ PHẦN THÊM VÀO ---
+# Chỉ định nơi lưu log build
+options:
+  logsBucket: 'gs://$PROJECT_ID-cloud-build-logs-${_REGION}'
