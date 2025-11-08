@@ -89,9 +89,13 @@ def _init_state() -> None:
         st.session_state["backend_url"] = _read_backend_from_secrets()
 
 
+# KHỐI MỚI ĐÃ SỬA LỖI
 def _touch() -> None:
     st.session_state["last_activity"] = time.time()
-    def _fmt_left(uploaded_at: float) -> str:
+
+
+def _fmt_left(uploaded_at: float) -> str:
+    # 3 dòng này đã được thụt vào đúng
     left = max(0, (uploaded_at + TTL_SECONDS) - time.time())
     m, s = int(left // 60), int(left % 60)
     return f"{m:02d}:{s:02d}"
