@@ -18,7 +18,7 @@ images:
   # Dòng này PHẢI thụt vào 2 dấu cách
   - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG'
 
-# --- ĐÂY LÀ PHẦN THÊM VÀO ---
-# Chỉ định nơi lưu log build
-options:
-  logsBucket: 'gs://$PROJECT_ID-cloud-build-logs-${_REGION}'
+# --- ĐÂY LÀ PHẦN SỬA LỖI ---
+# logsBucket là một trường CẤP CAO NHẤT (top-level)
+# Nó KHÔNG nằm bên trong 'options'
+logsBucket: 'gs://$PROJECT_ID-cloud-build-logs-${_REGION}'
