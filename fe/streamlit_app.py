@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import os
 import time
 import hashlib
 from pathlib import Path
@@ -97,13 +96,11 @@ def _init_state() -> None:
         }
 
 
-# KHỐI MỚI ĐÃ SỬA LỖI
 def _touch() -> None:
     st.session_state["last_activity"] = time.time()
 
 
 def _fmt_left(uploaded_at: float) -> str:
-    # 3 dòng này đã được thụt vào đúng
     left = max(0, (uploaded_at + TTL_SECONDS) - time.time())
     m, s = int(left // 60), int(left % 60)
     return f"{m:02d}:{s:02d}"
@@ -256,37 +253,37 @@ with st.container(border=True):
     status_detail = health_state.get("detail", "")
     checked_at = health_state.get("checked_at")
 
-    if using:
-        status_icon = "❔"
-        status_text = "Chưa kiểm tra kết nối"
-        status_color = "#666"
-        if status_code is None and not health_clicked and (not status_detail or "Chưa kiểm tra" in status_detail):
-            status_text = "Chưa kiểm tra kể từ khi cập nhật URL"
-        elif status_code is None:
-            status_icon = "⚠️"
-            status_color = "#c62828"
-            status_text = "Không thể kết nối tới backend"
-        elif 200 <= status_code < 300:
-            status_icon = "✅"
-            status_text = f"Kết nối ổn định (HTTP {status_code})"
-            status_color = "#2e7d32"
-        else:
-            status_icon = "⚠️"
-            status_text = f"Không thành công (HTTP {status_code})"
-            status_color = "#c62828"
+    status_panel = st.container()
+    with status_panel:
+        if using:
+            tone = st.info
+            headline = "❔ Chưa kiểm tra kết nối"
+            expand_detail = False
+            if status_code is None and status_detail and "Chưa kiểm tra" not in status_detail:
+                tone = st.warning
+                headline = "⚠️ Không thể kết nối tới backend"
+                expand_detail = True
+            elif status_code is not None and 200 <= status_code < 300:
+                tone = st.success
+                headline = f"✅ Kết nối ổn định (HTTP {status_code})"
+            elif status_code is not None:
+                tone = st.error
+                headline = f"⚠️ Phản hồi bất thường (HTTP {status_code})"
+                expand_detail = True
 
-        badge = f"<span style='font-weight:600;color:{status_color};'>{status_icon} {status_text}</span>"
-        checked_html = f"<span style='color:#888;font-size:0.85rem;'>Cập nhật: {checked_at or '—'}</span>"
-        st.markdown(
-            "<div style='display:flex;flex-direction:column;gap:4px;'>"
-            f"<span style='font-size:0.95rem;'>Đang dùng: <code>{using}</code></span>"
-            f"{badge}<span style='color:#888;font-size:0.9rem;'>{status_detail}</span>"
-            f"{checked_html}"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.info("Nhập và lưu Backend URL để bắt đầu.")
+            tone(headline)
+            cols = st.columns([2.2, 1], gap="medium")
+            with cols[0]:
+                st.caption(f"Đang dùng: {using}")
+                if status_detail:
+                    with st.expander("Chi tiết phản hồi", expanded=expand_detail):
+                        st.code(status_detail, language="text")
+            with cols[1]:
+                status_display = str(status_code) if status_code is not None else "Chưa có"
+                st.metric("HTTP status", status_display)
+                st.caption(f"Lần kiểm tra cuối: {checked_at or 'Chưa có'}")
+        else:
+            st.info("Nhập và lưu Backend URL để bắt đầu.")
 
 st.divider()
 
@@ -344,7 +341,9 @@ st.divider()
 # ---- Convert form ----
 with st.container(border=True):
     st.subheader("Convert sang Excel")
-    st.caption("Bấm Convert khi danh sách file đã sẵn sàng. Hệ thống sẽ đồng bộ dữ liệu với backend và tự động xoá file tạm sau khi hoàn tất.")
+    st.caption(
+        "Bấm Convert khi danh sách file đã sẵn sàng. Hệ thống sẽ đồng bộ dữ liệu với backend và tự động xoá file tạm sau khi hoàn tất."
+    )
     opts_col, action_col = st.columns([1.6, 1], gap="large")
     with opts_col:
         merge_to_one = st.toggle(
