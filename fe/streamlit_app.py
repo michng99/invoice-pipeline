@@ -200,7 +200,7 @@ def _add_uploads(files) -> Tuple[List[str], List[str], List[str]]:
 def _post_convert(url: str, merge_to_one: bool):
     files = []
     for name, meta in st.session_state["uploads"].items():
-        files.append(("files", (name, io.BytesIO(meta["data"]), "application/xml")))
+        files.append(("xml_files", (name, io.BytesIO(meta["data"]), "application/xml")))
     data = {"merge_to_one": str(merge_to_one).lower()}
     r = requests.post(url.rstrip("/") + "/pipeline/xml-to-xlsx", files=files, data=data, timeout=120)
     return r
