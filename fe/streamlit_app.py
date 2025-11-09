@@ -50,6 +50,7 @@ def _set_backend_url(url: str) -> None:
     st.session_state["backend_url"] = url
     if url:
         _write_backend_to_secrets(url)
+        _set_health_status(None, "Chưa kiểm tra sau khi cập nhật URL.")
 
 
 def _health(url: str) -> Tuple[int | None, str]:
@@ -88,6 +89,13 @@ def _init_state() -> None:
     if "backend_url" not in st.session_state:
         st.session_state["backend_url"] = _read_backend_from_secrets()
 
+    if "health_status" not in st.session_state:
+        st.session_state["health_status"] = {
+            "status_code": None,
+            "detail": "Chưa kiểm tra.",
+            "checked_at": None,
+        }
+
 
 # KHỐI MỚI ĐÃ SỬA LỖI
 def _touch() -> None:
@@ -110,6 +118,15 @@ def _clear_all() -> None:
     _touch()
 
 
+def _set_health_status(code: int | None, detail: str) -> None:
+    st.session_state["health_status"] = {
+        "status_code": code,
+        "detail": detail,
+        "checked_at": time.strftime("%H:%M:%S", time.localtime()),
+    }
+    _touch()
+
+
 def _cleanup_ttl() -> None:
     # hết TTL -> reset phiên
     last = st.session_state.get("last_activity") or time.time()
@@ -123,6 +140,17 @@ def _sha256(b: bytes) -> str:
     h = hashlib.sha256()
     h.update(b)
     return h.hexdigest()
+
+
+def _fmt_size(num_bytes: int) -> str:
+    step = 1024.0
+    units = ["B", "KB", "MB", "GB"]
+    size = float(num_bytes)
+    for unit in units:
+        if size < step or unit == units[-1]:
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+        size /= step
+    return f"{size:.1f} GB"
 
 
 def _add_uploads(files) -> Tuple[List[str], List[str], List[str]]:
@@ -189,38 +217,90 @@ st.title("📄 Invoice Pipeline | Upload & Convert")
 # ---- Backend URL ----
 with st.container(border=True):
     st.subheader("Kết nối Backend")
-    url_input = st.text_input("Backend URL", value=_get_backend_url(), placeholder="https://<service>-<hash>-<region>.a.run.app")
-    col1, col2 = st.columns([1,1], gap="small")
-    with col1:
-        if st.button("💾 Lưu URL", use_container_width=True):
-            if url_input and url_input.startswith("http"):
-                _set_backend_url(url_input)
-                st.success("Đã lưu URL backend.")
+    st.caption("Lưu URL dịch vụ và kiểm tra kết nối trước khi đồng bộ hoá dữ liệu.")
+    url_col, action_col = st.columns([2.5, 1], gap="medium")
+    with url_col:
+        url_input = st.text_input(
+            "Backend URL",
+            value=_get_backend_url(),
+            placeholder="https://<service>-<hash>-<region>.a.run.app",
+            help="Dán URL Cloud Run/Service khác đáp ứng /health và /pipeline/xml-to-xlsx.",
+        )
+    with action_col:
+        save_clicked = st.button("💾 Lưu URL", use_container_width=True)
+        health_clicked = st.button("🔗 Kiểm tra /health", use_container_width=True)
+
+    if save_clicked:
+        if url_input and url_input.startswith("http"):
+            _set_backend_url(url_input)
+            st.success("Đã lưu URL backend.")
+        else:
+            st.error("URL không hợp lệ.")
+
+    if health_clicked:
+        url = _get_backend_url()
+        if not url:
+            st.warning("Chưa cấu hình Backend URL.")
+        else:
+            code, text = _health(url)
+            detail = text[:500] if text else "Không có phản hồi."
+            _set_health_status(code, detail)
+            if code and 200 <= code < 300:
+                st.success("Kết nối backend thành công.")
             else:
-                st.error("URL không hợp lệ.")
-    with col2:
-        if st.button("🔗 Kiểm tra /health", use_container_width=True):
-            url = _get_backend_url()
-            if not url:
-                st.warning("Chưa cấu hình Backend URL.")
-            else:
-                code, text = _health(url)
-                st.write(f"Response: {code} — {text[:500]}")
+                st.error("Backend phản hồi bất thường. Kiểm tra chi tiết bên dưới.")
 
     using = _get_backend_url()
+    health_state = st.session_state.get("health_status", {})
+    status_code = health_state.get("status_code")
+    status_detail = health_state.get("detail", "")
+    checked_at = health_state.get("checked_at")
+
     if using:
-        st.info(f"Đang dùng: {using}")
+        status_icon = "❔"
+        status_text = "Chưa kiểm tra kết nối"
+        status_color = "#666"
+        if status_code is None and not health_clicked and (not status_detail or "Chưa kiểm tra" in status_detail):
+            status_text = "Chưa kiểm tra kể từ khi cập nhật URL"
+        elif status_code is None:
+            status_icon = "⚠️"
+            status_color = "#c62828"
+            status_text = "Không thể kết nối tới backend"
+        elif 200 <= status_code < 300:
+            status_icon = "✅"
+            status_text = f"Kết nối ổn định (HTTP {status_code})"
+            status_color = "#2e7d32"
+        else:
+            status_icon = "⚠️"
+            status_text = f"Không thành công (HTTP {status_code})"
+            status_color = "#c62828"
+
+        badge = f"<span style='font-weight:600;color:{status_color};'>{status_icon} {status_text}</span>"
+        checked_html = f"<span style='color:#888;font-size:0.85rem;'>Cập nhật: {checked_at or '—'}</span>"
+        st.markdown(
+            "<div style='display:flex;flex-direction:column;gap:4px;'>"
+            f"<span style='font-size:0.95rem;'>Đang dùng: <code>{using}</code></span>"
+            f"{badge}<span style='color:#888;font-size:0.9rem;'>{status_detail}</span>"
+            f"{checked_html}"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("Nhập và lưu Backend URL để bắt đầu.")
 
 st.divider()
 
 # ---- Upload zone ----
-st.subheader("Chọn nhiều XML (d1…d5, …)")
-uploaded_files = st.file_uploader(
-    "Drag and drop files here",
-    type=["xml"],
-    accept_multiple_files=True,
-    label_visibility="collapsed",
-)
+with st.container(border=True):
+    st.subheader("Tải XML lên")
+    st.caption("Kéo thả hàng loạt file XML cần hợp nhất/convert. Ứng dụng tự loại bản trùng lặp theo tên hoặc nội dung.")
+    uploaded_files = st.file_uploader(
+        "Drag and drop files here",
+        type=["xml"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+        help="Chấp nhận nhiều file cùng lúc. Trùng tên sẽ được ghi đè, trùng nội dung sẽ chỉ giữ bản mới nhất.",
+    )
 
 if uploaded_files:
     added, rep_n, rep_c = _add_uploads(uploaded_files)
@@ -236,18 +316,23 @@ if uploaded_files:
 
 # ---- Bảng file & TTL ----
 if st.session_state["uploads"]:
-    colA, colB = st.columns([3,1])
+    colA, colB = st.columns([3, 1.2], gap="large")
     with colA:
         st.caption("Các file đang giữ tạm (tự xoá sau 5 phút không tương tác):")
         rows = []
         for name, meta in st.session_state["uploads"].items():
             rows.append({
                 "Tên file": name,
-                "Kích thước": meta["size"],
+                "Kích thước": _fmt_size(meta["size"]),
                 "Còn lại (TTL)": _fmt_left(meta["uploaded_at"]),
             })
         st.dataframe(rows, hide_index=True, use_container_width=True)
     with colB:
+        total_files = len(st.session_state["uploads"])
+        total_bytes = sum(meta["size"] for meta in st.session_state["uploads"].values())
+        st.metric("Số file", total_files, help="Số lượng file XML đang được lưu tạm.")
+        st.metric("Tổng dung lượng", _fmt_size(total_bytes))
+        st.caption("Dữ liệu chỉ tồn tại trong phiên và sẽ bị xoá sau 5 phút không tương tác.")
         if st.button("🧽 Xoá tất cả file (ngay)", type="secondary", use_container_width=True):
             _clear_all()
             st.success("Đã xoá tất cả.")
@@ -257,8 +342,27 @@ else:
 st.divider()
 
 # ---- Convert form ----
-merge_to_one = st.checkbox("Gộp nhiều file thành 1 Excel", value=True)
-convert_btn = st.button("🚀 Convert", type="primary", disabled=not st.session_state["uploads"] or st.session_state["busy"])
+with st.container(border=True):
+    st.subheader("Convert sang Excel")
+    st.caption("Bấm Convert khi danh sách file đã sẵn sàng. Hệ thống sẽ đồng bộ dữ liệu với backend và tự động xoá file tạm sau khi hoàn tất.")
+    opts_col, action_col = st.columns([1.6, 1], gap="large")
+    with opts_col:
+        merge_to_one = st.toggle(
+            "Gộp nhiều file thành 1 Excel",
+            value=True,
+            key="merge_toggle",
+            help="Bật nếu muốn backend hợp nhất nhiều XML thành một file Excel duy nhất.",
+        )
+        st.caption("Bạn có thể tắt tuỳ chọn này nếu cần từng file Excel riêng lẻ.")
+    with action_col:
+        convert_btn = st.button(
+            "🚀 Convert",
+            type="primary",
+            use_container_width=True,
+            disabled=not st.session_state["uploads"] or st.session_state["busy"],
+        )
+        if st.session_state["busy"]:
+            st.info("Đang thực hiện convert… giữ trang mở để hoàn tất.")
 
 # chống double-click: đặt cờ rồi rerun ở đầu chu trình render
 if convert_btn and not st.session_state["busy"]:
