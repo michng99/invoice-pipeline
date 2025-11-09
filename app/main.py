@@ -15,16 +15,12 @@ from starlette.middleware.cors import CORSMiddleware
 
 # ================== CẤU HÌNH CHUNG ==================
 APP_VERSION = "v2.4-rules"
-TTL_SECONDS = 5 * 60                 # 5 phút, đồng bộ với FE
 MAX_FILES = 50
 MAX_FILE_SIZE = 10 * 1024 * 1024     # 10MB / file
 MAX_TOTAL_SIZE = 50 * 1024 * 1024    # 50MB / request
 
 RATE_LIMIT_WINDOW = 10               # giây
 RATE_LIMIT_MAX_CALLS = 20            # mỗi IP trong 10s
-
-STRICT_TTL = os.getenv("STRICT_TTL", "1").lower() not in ("0","false","no")
-DEV_BYPASS_HEADER = "X-Dev-Bypass"  # gửi "1" thì bỏ TTL (chỉ dùng lúc DEV)
 
 # Bộ nhớ tạm cho rate-limit (per-instance)
 _rate_store: Dict[str, List[float]] = {}
@@ -46,26 +42,18 @@ def _check_rate_limit(ip: str) -> None:
     buf.append(now)
     _rate_store[ip] = buf
 
-def _validate_session(last_active_ts: Optional[float], dev_bypass: bool=False) -> None:
-    if dev_bypass or not STRICT_TTL:
-        return
-    if last_active_ts is None:
-        raise HTTPException(status_code=440, detail="Session Expired")
-    try:
-        ts = float(last_active_ts)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid X-Last-Active header")
-    if time.time() - ts > TTL_SECONDS:
-        raise HTTPException(status_code=440, detail="Session Expired")
-
-def _validate_and_read_files(files: List[UploadFile]) -> Dict[str, bytes]:
+# (Đảm bảo bạn đã import io)
+async def _validate_and_read_files(files: List[UploadFile]) -> Dict[str, bytes]:
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded (form field 'files').")
     if len(files) > MAX_FILES:
         raise HTTPException(status_code=413, detail=f"Too many files (> {MAX_FILES}).")
+
     seen = set()
-    total = 0
+    total_size = 0
     out: Dict[str, bytes] = {}
+    chunk_size = 4 * 1024 * 1024  # Đọc 4MB mỗi lần
+
     for uf in files:
         name = (uf.filename or "unnamed.xml").strip()
         if not name.lower().endswith(".xml"):
@@ -73,16 +61,33 @@ def _validate_and_read_files(files: List[UploadFile]) -> Dict[str, bytes]:
         if name in seen:
             raise HTTPException(status_code=409, detail=f"Duplicate filename: {name}")
         seen.add(name)
-        data = uf.file.read()
-        size = len(data)
-        if size <= 0:
+
+        file_chunks = []
+        file_size = 0
+
+        # Đọc từng chunk để kiểm tra kích thước
+        while True:
+            chunk = await uf.file.read(chunk_size)
+            if not chunk:
+                break
+
+            file_size += len(chunk)
+            total_size += len(chunk)
+
+            if file_size > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail=f"File too large: {name} (> {MAX_FILE_SIZE} bytes)")
+            if total_size > MAX_TOTAL_SIZE:
+                raise HTTPException(status_code=413, detail=f"Total upload too large (> {MAX_TOTAL_SIZE} bytes)")
+
+            file_chunks.append(chunk)
+
+        if file_size == 0:
             raise HTTPException(status_code=400, detail=f"Empty file: {name}")
-        if size > MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail=f"File too large: {name} (> {MAX_FILE_SIZE} bytes)")
-        total += size
-        if total > MAX_TOTAL_SIZE:
-            raise HTTPException(status_code=413, detail=f"Total upload too large (> {MAX_TOTAL_SIZE} bytes)")
-        out[name] = data
+
+        # Nối các chunk lại thành 1 file bytes
+        out[name] = b"".join(file_chunks)
+        await uf.file.close()
+
     return out
 
 # ================== HELPERS NGHIỆP VỤ ==================
@@ -266,25 +271,19 @@ def health():
 from typing import Optional  # nếu chưa import
 
 @app.post("/pipeline/xml-to-xlsx")
-@app.post("/pipeline/xml-to-xlsx")
 async def xml_to_xlsx(
     request: Request,
     files: List[UploadFile] = File(..., description="Multipart key 'files' (multi)"),
     merge_to_one: str = Form("true"),
-    x_last_active: Optional[float] = Header(default=None, convert_underscores=False),
     x_client_ip: Optional[str] = Header(default=None, convert_underscores=False),
-    x_dev_bypass: Optional[str] = Header(default=None, convert_underscores=False),  # <--
 ):
+    # Bước 4: Bảo vệ Rate Limit (đã có)
     ip = _client_ip(request, x_client_ip)
     _check_rate_limit(ip)
-    _validate_session(x_last_active, dev_bypass=(x_dev_bypass == "1"))  # <--
-    # Bảo vệ
-    ip = _client_ip(request, x_client_ip)
-    _check_rate_limit(ip)
-    _validate_session(x_last_active)
 
-    # Đọc input
-    filemap = _validate_and_read_files(files)
+    # Bước 3: Bảo vệ Đọc file (đã vá DoS)
+    # Lưu ý: Hàm này bây giờ là async, nên phải 'await'
+    filemap = await _validate_and_read_files(files)
     merge = (merge_to_one.lower() == "true")
 
     if merge:
