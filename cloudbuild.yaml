@@ -36,8 +36,10 @@ steps:
   args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_FE_SERVICE}:latest']
 
 # --- 3. DEPLOY BACKEND (NỘI BỘ) ---
-- name: 'gcr.io/google-cloud-sdk/gcloud'
+# SỬA LỖI: Dùng tên builder mới của Google
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   id: 'Deploy Backend (Internal)'
+  entrypoint: gcloud # Thêm entrypoint cho rõ ràng
   args:
     - 'run'
     - 'deploy'
@@ -49,7 +51,8 @@ steps:
     - '--ingress=internal' # <--- BẢO MẬT: CHỈ NỘI BỘ
 
 # --- 4. DEPLOY FRONTEND (CÔNG KHAI) ---
-- name: 'gcr.io/google-cloud-sdk/gcloud'
+# SỬA LỖI: Dùng tên builder mới của Google
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   id: 'Deploy Frontend (Public)'
   entrypoint: 'bash'
   args:
