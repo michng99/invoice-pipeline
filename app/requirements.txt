@@ -1,0 +1,11 @@
+# File: app/requirements.txt
+
+fastapi
+uvicorn
+gunicorn
+pandas
+xmltodict
+python-multipart
+xlsxwriter
+requests
+tomli
