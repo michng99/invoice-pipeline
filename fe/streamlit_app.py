@@ -200,7 +200,12 @@ st.title("📄 Invoice Pipeline | Upload & Convert")
 # ---- Backend URL ----
 with st.container(border=True):
     st.subheader("Kết nối Backend")
-    url_input = st.text_input("Backend URL", value=_get_backend_url(), placeholder="https://<service>-<hash>-<region>.a.run.app")
+
+    # TỰ ĐỘNG LẤY URL BACKEND TỪ BIẾN MÔI TRƯỜNG (do Cloud Build tiêm vào)
+    # Nếu không có (ví dụ chạy local), nó sẽ dùng giá trị cũ _get_backend_url()
+    default_backend_url = os.environ.get("BACKEND_URL", _get_backend_url())
+    
+    url_input = st.text_input("Backend URL", value=default_backend_url, placeholder="https://<service>-<hash>-<region>.a.run.app")
     col1, col2 = st.columns([1,1], gap="small")
     with col1:
         if st.button("💾 Lưu URL", use_container_width=True):
