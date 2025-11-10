@@ -1,24 +1,74 @@
 substitutions:
   _REGION: "asia-southeast1"
-  _REPO: "invoice-pipeline"
-  _SERVICE: "invoice-fe"
-  _TAG: "$SHORT_SHA"
-steps:
-- name: 'gcr.io/cloud-builders/docker'
-  id: build
-  args: ['build','-f','fe/Dockerfile','-t','$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG','fe']
-- name: 'gcr.io/cloud-builders/docker'
-  id: push
-  args: ['push','$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG']
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: deploy
-  entrypoint: gcloud
-  args: ['run','deploy','$_SERVICE','--image','$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG','--region','$_REGION','--allow-unauthenticated','--platform','managed']
-images:
-  # Dòng này PHẢI thụt vào 2 dấu cách
-  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$_TAG'
+  _AR_REPO: "invoice-repo" # Tên kho chứa Docker image của bạn
+  _BE_SERVICE: "invoice-backend"
+  _FE_SERVICE: "invoice-frontend"
 
-# --- ĐÂY LÀ PHẦN SỬA LỖI ---
-# logsBucket là một trường CẤP CAO NHẤT (top-level)
-# Nó KHÔNG nằm bên trong 'options'
+steps:
+# --- 1. BUILD & PUSH BACKEND (FastAPI) ---
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'Build Backend'
+  args:
+    - 'build'
+    - '-t'
+    - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_BE_SERVICE}:latest'
+    - '-f' # Chỉ định Dockerfile
+    - 'app/Dockerfile' # Dùng file trong app
+    - './app' # Build context là thư mục app
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'Push Backend'
+  args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_BE_SERVICE}:latest']
+
+# --- 2. BUILD & PUSH FRONTEND (Streamlit) ---
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'Build Frontend'
+  args:
+    - 'build'
+    - '-t'
+    - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_FE_SERVICE}:latest'
+    - '-f' # Chỉ định Dockerfile
+    - 'fe/Dockerfile' # Dùng file trong fe
+    - './fe' # Build context là thư mục fe
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'Push Frontend'
+  args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_FE_SERVICE}:latest']
+
+# --- 3. DEPLOY BACKEND (NỘI BỘ) ---
+- name: 'gcr.io/google-cloud-sdk/gcloud'
+  id: 'Deploy Backend (Internal)'
+  args:
+    - 'run'
+    - 'deploy'
+    - '${_BE_SERVICE}'
+    - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_BE_SERVICE}:latest'
+    - '--region=${_REGION}'
+    - '--platform=managed'
+    - '--allow-unauthenticated'
+    - '--ingress=internal' # <--- BẢO MẬT: CHỈ NỘI BỘ
+
+# --- 4. DEPLOY FRONTEND (CÔNG KHAI) ---
+- name: 'gcr.io/google-cloud-sdk/gcloud'
+  id: 'Deploy Frontend (Public)'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    # Lấy URL của backend nội bộ
+    BACKEND_URL=$$(gcloud run services describe ${_BE_SERVICE} --platform managed --region ${_REGION} --format "value(status.url)")
+    
+    # Deploy frontend và "tiêm" URL đó vào làm biến môi trường
+    gcloud run deploy ${_FE_SERVICE} \
+      --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_FE_SERVICE}:latest \
+      --region=${_REGION} \
+      --platform=managed \
+      --allow-unauthenticated \
+      --ingress=all \
+      --set-env-vars=BACKEND_URL=$$BACKEND_URL
+
+images:
+- '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_BE_SERVICE}:latest'
+- '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_FE_SERVICE}:latest'
+
 logsBucket: 'gs://$PROJECT_ID-cloud-build-logs-${_REGION}'
