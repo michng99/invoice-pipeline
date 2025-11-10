@@ -11,7 +11,7 @@ import requests
 import streamlit as st
 
 # ========= Cấu hình =========
-TTL_SECONDS = 5 * 60  # TTL 5 phút
+TTL_SECONDS = 3 * 60  # TTL 3 phút
 SECRETS_FILE = Path("fe/.streamlit/secrets.toml")  # lưu local trong image/volume
 
 st.set_page_config(page_title="Invoice Pipeline – Upload & Convert", layout="wide")
@@ -131,6 +131,10 @@ def _add_uploads(files) -> Tuple[List[str], List[str], List[str]]:
     - replaced_by_name: ghi đè do tên trùng
     - replaced_by_content: ghi đè do nội dung trùng SHA (khác tên)
     """
+    # Logic 5 (Fix): Xoá kết quả convert cũ khi có file mới được upload
+    st.session_state["result_bytes"] = None
+    st.session_state["just_converted"] = False
+
     added: List[str] = []
     rep_name: List[str] = []
     rep_content: List[str] = []
@@ -259,18 +263,31 @@ if st.session_state["uploads"]:
                 "Còn lại (TTL)": _fmt_left(meta["uploaded_at"]),
             })
         st.dataframe(rows, hide_index=True, use_container_width=True)
+    
+    # SỬA LỖI: Thụt đầu dòng khối 'with colB:' vào BÊN TRONG 'if'
     with colB:
         if st.button("🧽 Xoá tất cả file (ngay)", type="secondary", use_container_width=True):
             _clear_all()
             st.success("Đã xoá tất cả.")
+            st.rerun() # BẮT BUỘC: Rerun để xoá bảng file khỏi UI ngay lập tức
 else:
     st.info("Chưa có file nào.")
 
 st.divider()
 
 # ---- Convert form ----
-merge_to_one = st.checkbox("Gộp nhiều file thành 1 Excel", value=True)
-convert_btn = st.button("🚀 Convert", type="primary", disabled=not st.session_state["uploads"] or st.session_state["busy"])
+num_files = len(st.session_state.get("uploads", {})) # Đếm số file
+
+merge_to_one = st.checkbox(
+    "Gộp nhiều file thành 1 Excel",
+    value=True,
+    disabled=num_files <= 1 # Logic 3: Vô hiệu hoá nếu <= 1 file
+)
+convert_btn = st.button(
+    "🚀 Convert",
+    type="primary",
+    disabled=num_files == 0 or st.session_state["busy"] # Chỉ bật khi có file
+)
 
 # chống double-click: đặt cờ rồi rerun ở đầu chu trình render
 if convert_btn and not st.session_state["busy"]:
