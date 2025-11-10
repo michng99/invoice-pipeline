@@ -258,11 +258,13 @@ if st.session_state["uploads"]:
                 "Còn lại (TTL)": _fmt_left(meta["uploaded_at"]),
             })
         st.dataframe(rows, hide_index=True, use_container_width=True)
-with colB:
-    if st.button("🧽 Xoá tất cả file (ngay)", type="secondary", use_container_width=True):
-        _clear_all()
-        st.success("Đã xoá tất cả.")
-        st.rerun() # BẮT BUỘC: Rerun để xoá bảng file khỏi UI ngay lập tức
+    
+    # SỬA LỖI: Thụt đầu dòng khối 'with colB:' vào BÊN TRONG 'if'
+    with colB:
+        if st.button("🧽 Xoá tất cả file (ngay)", type="secondary", use_container_width=True):
+            _clear_all()
+            st.success("Đã xoá tất cả.")
+            st.rerun() # BẮT BUỘC: Rerun để xoá bảng file khỏi UI ngay lập tức
 else:
     st.info("Chưa có file nào.")
 
