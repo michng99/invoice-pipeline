@@ -221,7 +221,7 @@ def _sha256(b: bytes) -> str:
 
 def _add_uploads(files):
     st.session_state["result_bytes"] = None 
-    added, rep_n, rep_c = [], [], []
+    added, rep_n, rep_c = [], [], [] # <--- Khai báo là rep_c
     store = st.session_state["uploads"]
     sha_idx = st.session_state["sha_index"]
 
@@ -237,7 +237,7 @@ def _add_uploads(files):
             if old_name != name:
                 store[name] = store.pop(old_name)
                 sha_idx[sha] = name
-            rep_content.append(name)
+            rep_c.append(name) # <--- ĐÃ SỬA: Dùng đúng tên biến rep_c
             continue
 
         if name in store:
