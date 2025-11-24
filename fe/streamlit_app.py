@@ -220,8 +220,9 @@ def _sha256(b: bytes) -> str:
     return h.hexdigest()
 
 def _add_uploads(files):
-    st.session_state["result_bytes"] = None 
-    added, rep_n, rep_c = [], [], [] # <--- Khai báo là rep_c
+    # ĐÃ XÓA DÒNG: st.session_state["result_bytes"] = None
+    
+    added, rep_n, rep_c = [], [], []
     store = st.session_state["uploads"]
     sha_idx = st.session_state["sha_index"]
 
@@ -231,13 +232,14 @@ def _add_uploads(files):
         size = len(data)
         sha = _sha256(data)
 
+        # Logic cũ giữ nguyên
         if sha in sha_idx and sha_idx[sha] in store:
             old_name = sha_idx[sha]
             store[old_name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
             if old_name != name:
                 store[name] = store.pop(old_name)
                 sha_idx[sha] = name
-            rep_c.append(name) # <--- ĐÃ SỬA: Dùng đúng tên biến rep_c
+            rep_c.append(name)
             continue
 
         if name in store:
