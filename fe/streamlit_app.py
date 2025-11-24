@@ -22,60 +22,76 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# CSS "THUỐC ĐẶC TRỊ" (FIX UI MOBILE & ẨN FOOTER)
-# ==============================================================================
-# ==============================================================================
-# CSS "BOM CHÙM" (DIỆT TẬN GỐC UI THỪA)
+# CSS "CHIẾN THUẬT MỚI" (TARGET LINK & FIX OVERLAP)
 # ==============================================================================
 st.markdown("""
     <style>
-        /* 1. DIỆT CÁI THANH HEADER & TOOLBAR TRÊN CÙNG (Chứa Avatar, Github icon) */
-        [data-testid="stHeader"] {display: none !important;}
-        [data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
-        
-        /* 2. DIỆT CÁI FOOTER MẶC ĐỊNH */
-        footer {display: none !important; visibility: hidden !important;}
-        [data-testid="stFooter"] {display: none !important;}
-        
-        /* 3. DIỆT CÁI NÚT ĐỎ "Hosted with Streamlit" (Viewer Badge) */
-        /* Dùng dấu *= nghĩa là: cứ thấy class nào chứa chữ "viewerBadge" là ẩn ngay */
-        div[class*="viewerBadge"] {display: none !important;}
-        
-        /* 4. DIỆT NÚT DEPLOY & MENU HAMBURGER */
-        .stDeployButton {display: none !important;}
-        #MainMenu {visibility: hidden !important;}
-        
-        /* 5. FIX GIAO DIỆN MOBILE & DARK MODE */
-        .block-container {
-            padding-top: 0rem !important; /* Đẩy sát lên trên vì mất header rồi */
-            padding-bottom: 5rem !important;
+        /* 1. DIỆT NÚT ĐỎ (HOSTED WITH STREAMLIT) */
+        /* Cách mới: Tìm thẻ <a> chứa link trỏ về streamlit cloud và ẩn nó */
+        a[href*="streamlit.io/cloud"] {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
         }
+        /* Phòng hờ: Ẩn luôn container chứa nó (thường có class viewerBadge...) */
+        div[class*="viewerBadge"] {
+            display: none !important;
+        }
+
+        /* 2. ẨN CÁC THÀNH PHẦN THỪA KHÁC */
+        #MainMenu {visibility: hidden !important;}
+        footer {visibility: hidden !important;}
+        header {visibility: hidden !important;}
+        [data-testid="stHeader"] {display: none !important;}
+        [data-testid="stToolbar"] {display: none !important;}
+        .stDeployButton {display: none !important;}
         
-        /* Fix màu input cho Dark Mode */
-        input {color: inherit !important;}
-        
-        /* 6. COPYRIGHT CỦA ÔNG (Nằm im dưới đáy, không che nút) */
+        /* 3. TỐI ƯU GIAO DIỆN MOBILE (QUAN TRỌNG) */
+        /* Đẩy nội dung chính lên sát top (vì đã ẩn header) */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 5rem !important; /* Chừa chỗ trống lớn ở dưới để scroll thoải mái */
+        }
+
+        /* 4. COPYRIGHT (KHÔNG DÙNG FIXED NỮA - ĐỂ TRÁNH ĐÈ NÚT) */
         .custom-footer {
             width: 100%;
             text-align: center;
             color: #888;
-            padding: 20px 0;
-            margin-top: 40px;
+            padding: 30px 0;
+            margin-top: 50px;
             border-top: 1px solid #333;
             font-size: 12px;
             font-family: sans-serif;
+            /* Đảm bảo nó nằm im dưới cùng như một nội dung bình thường */
+            position: relative; 
+            display: block;
+        }
+
+        /* 5. FIX DARK MODE CHO INPUT */
+        input {
+            color: inherit !important;
         }
     </style>
 """, unsafe_allow_html=True)
 
+# CSS Patch cho Dark Mode (nếu cần)
+if "theme" not in st.session_state: st.session_state["theme"] = "light"
+if st.session_state["theme"] == "dark":
+    st.markdown("""
+        <style>
+        .stApp {background-color: #0E1117; color: #FAFAFA;}
+        div[data-baseweb="select"] > div, div[data-baseweb="input"] {
+            background-color: #262730 !important; 
+            color: white !important;
+        }
+        input {color: white !important;}
+        </style>
+    """, unsafe_allow_html=True)
 
 # ==============================================================================
 # LOGIC CORE (GIỮ NGUYÊN)
 # ==============================================================================
-
-# ... (Giữ nguyên phần logic xử lý XML/Excel như cũ để tiết kiệm chỗ) ...
-# Ông cứ giữ nguyên phần logic code từ dòng "COLUMN_ORDER =" đến hết hàm "_df_to_xlsx_stream"
-# Nếu ông lỡ xóa thì copy lại từ phiên bản trước, chỉ thay đổi phần UI ở dưới này 👇
 
 COLUMN_ORDER = [
     "Mẫu số", "KH hóa đơn", "Số hóa đơn", "Ngày hóa đơn",
@@ -447,5 +463,5 @@ if st.session_state["result_bytes"]:
         type="primary"
     )
 
-# --- CUSTOM FOOTER (ĐÃ BỎ POSITION FIXED) ---
+# --- CUSTOM FOOTER (ĐÃ FIX: KHÔNG CÒN ĐÈ NÚT) ---
 st.markdown(f'<div class="custom-footer">{T["copyright"]}</div>', unsafe_allow_html=True)
