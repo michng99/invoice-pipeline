@@ -12,10 +12,52 @@ import pandas as pd
 import xlsxwriter
 
 # ==============================================================================
-# PHẦN 1: LOGIC XỬ LÝ (GIỮ NGUYÊN KHÔNG ĐỔI)
+# CẤU HÌNH & CSS (TỐI ƯU GIAO DIỆN)
+# ==============================================================================
+st.set_page_config(
+    page_title="Invoice Pipeline",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# CSS "Thần thánh" để ẩn rác và tạo giao diện Clean
+st.markdown("""
+    <style>
+        /* Ẩn Menu 3 chấm, Footer, Header trang trí, Nút Deploy */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stDeployButton {display:none;}
+        
+        /* Ẩn icon Github (nếu có do theme) */
+        .css-1jc7ptx, .e1ewe7hr3, .viewerBadge_container__1QSob {display: none;}
+
+        /* Căn chỉnh lại container chính vì đã ẩn header */
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 5rem;
+        }
+
+        /* Style cho copyright footer */
+        .custom-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: transparent;
+            color: #888;
+            text-align: center;
+            padding: 10px;
+            font-size: 13px;
+            z-index: 999;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# ==============================================================================
+# PHẦN 1: LOGIC XỬ LÝ (CORE)
 # ==============================================================================
 
-# Cấu trúc cột CHUẨN
 COLUMN_ORDER = [
     "Mẫu số", "KH hóa đơn", "Số hóa đơn", "Ngày hóa đơn",
     "ST người bán", "Tên người bán", "ĐC người bán", "C người bán",
@@ -41,7 +83,11 @@ def _find_text(node: ET.Element, path: str):
     return _txt(n.text) if n is not None and n.text is not None else ""
 
 def _parse_invoice(xml_bytes: bytes) -> dict:
-    root = ET.fromstring(xml_bytes)
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return {}
+
     def f(p): 
         n = root.find(p)
         return _txt(n.text) if n is not None and n.text is not None else ""
@@ -80,6 +126,7 @@ def _parse_invoice(xml_bytes: bytes) -> dict:
     return invoice
 
 def _rows_from_invoice(inv: dict) -> list[dict]:
+    if not inv: return []
     ms  = inv.get("KHMSHDon") or ""
     kh  = inv.get("KHHDon") or ""
     so  = inv.get("SHDon") or ""
@@ -95,7 +142,6 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
     items = inv.get("Items") or []
     rows = []
 
-    # Helper tạo row
     def create_row(it, override_vals=None):
         r = {k: "" for k in COLUMN_ORDER}
         r.update({
@@ -116,12 +162,10 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
         if override_vals: r.update(override_vals)
         return r
 
-    # Tchat = 4
     for it in items:
         if (it.get("TChat") or "").strip() == "4":
             rows.append(create_row(it, {"Cờ (Tchat)": 4, "Mã hàng": "", "Đơn vị tính": ""}))
 
-    # Còn lại
     for it in items:
         if (it.get("TChat") or "").strip() == "4": continue
         rows.append(create_row(it))
@@ -146,10 +190,14 @@ def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tu
         try:
             inv = _parse_invoice(data)
             rows = _rows_from_invoice(inv)
+            if not rows: continue
             per_file_rows.append(rows)
             xlsx = _df_to_xlsx_stream(rows)
             named_streams.append((f"{name.rsplit('.',1)[0]}.xlsx", xlsx.getvalue()))
         except Exception: continue
+
+    if not per_file_rows:
+        return None, None
 
     if merge or len(named_streams) == 1:
         all_rows = []
@@ -164,15 +212,17 @@ def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tu
         return zbuf.getvalue(), "application/zip"
 
 # ==============================================================================
-# PHẦN 2: FRONTEND & ĐA NGÔN NGỮ
+# PHẦN 2: FRONTEND & STATE
 # ==============================================================================
 
 # --- DICTIONARY NGÔN NGỮ ---
 LANG = {
     "en": {
         "page_title": "Invoice Pipeline",
-        "sidebar_title": "Settings",
-        "lang_select": "Language",
+        "settings": "Settings",
+        "theme_label": "Theme",
+        "dark": "Dark", "light": "Light",
+        "lang_label": "Language",
         "mode_info": "Mode: **All-in-One** (Secure & Private)",
         "check_sys": "System Check",
         "sys_ok": "✅ System Operational",
@@ -196,9 +246,11 @@ LANG = {
         "empty_list": "No files uploaded yet."
     },
     "vi": {
-        "page_title": "Xử lý Hóa đơn Điện tử",
-        "sidebar_title": "Cài đặt",
-        "lang_select": "Ngôn ngữ / Language",
+        "page_title": "Xử lý Hóa đơn",
+        "settings": "Cài đặt",
+        "theme_label": "Giao diện",
+        "dark": "Tối", "light": "Sáng",
+        "lang_label": "Ngôn ngữ",
         "mode_info": "Chế độ: **All-in-One** (Bảo mật & Riêng tư)",
         "check_sys": "Kiểm tra hệ thống",
         "sys_ok": "✅ Hệ thống hoạt động tốt",
@@ -215,7 +267,7 @@ LANG = {
         "success_msg": "✅ Xử lý thành công!",
         "error_msg": "Lỗi xử lý: ",
         "download_btn": "⬇️ Tải về kết quả",
-        "copyright": "© 2025 Chuong Minh | All Rights Reserved",
+        "copyright": "© 2025 Bản quyền của Minh Chương",
         "error_too_many": "⚠️ Quá tải: Chỉ chấp nhận tối đa {max} file.",
         "error_file_big": "❌ Bỏ qua '{name}': Quá lớn (> {size}MB)",
         "error_total_big": "❌ Dừng thêm '{name}': Tổng dung lượng vượt quá {size}MB",
@@ -224,31 +276,7 @@ LANG = {
 }
 
 TTL_SECONDS = 3 * 60 
-st.set_page_config(page_title="Invoice Pipeline", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS CUSTOMIZATION (WHITELABEL) ---
-# Ẩn Header mặc định, Ẩn Footer Streamlit, Ẩn nút Deploy/Fork
-st.markdown("""
-    <style>
-        /* Ẩn menu hamburger và footer mặc định */
-        #MainMenu {visibility: hidden;} 
-        footer {visibility: hidden;}
-        header {visibility: hidden;} 
-        
-        /* Ẩn thanh trang trí trên cùng */
-        .stApp > header {display: none;}
-        
-        /* Ẩn nút Deploy nếu có */
-        .stDeployButton {display:none;}
-        
-        /* Chỉnh lại padding top do đã ẩn header */
-        .block-container {
-            padding-top: 2rem;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- STATE MANAGEMENT ---
 def _init_state():
     if "uploads" not in st.session_state: st.session_state["uploads"] = {}
     if "sha_index" not in st.session_state: st.session_state["sha_index"] = {}
@@ -257,8 +285,8 @@ def _init_state():
     if "do_convert" not in st.session_state: st.session_state["do_convert"] = False
     if "result_bytes" not in st.session_state: st.session_state["result_bytes"] = None
     if "result_mime" not in st.session_state: st.session_state["result_mime"] = None
-    # Default language
-    if "lang_code" not in st.session_state: st.session_state["lang_code"] = "en"
+    if "lang_code" not in st.session_state: st.session_state["lang_code"] = "vi" # Default Tiếng Việt
+    if "theme" not in st.session_state: st.session_state["theme"] = "light"
 
 def _touch():
     st.session_state["last_activity"] = time.time()
@@ -341,30 +369,57 @@ def _add_uploads(files, text_dict):
     _touch()
     return added, rep_n, rep_c
 
-# ========= MAIN UI =========
+# ========= MAIN APP =========
 _init_state()
 _cleanup_ttl()
 
-# --- SIDEBAR SETTINGS ---
-with st.sidebar:
-    st.header("⚙️ Settings")
-    # Toggle Language
-    lang_choice = st.radio(
-        "Language / Ngôn ngữ",
-        options=["English", "Tiếng Việt"],
-        index=0 if st.session_state["lang_code"] == "en" else 1,
-        horizontal=False
-    )
-    # Update state based on selection
-    new_code = "en" if lang_choice == "English" else "vi"
-    if new_code != st.session_state["lang_code"]:
-        st.session_state["lang_code"] = new_code
-        st.rerun()
+# --- THEME INJECTION (Fake Dark Mode) ---
+# Do Streamlit không cho đổi theme bằng code, ta dùng CSS để giả lập nếu user chọn Tối
+if st.session_state["theme"] == "dark":
+    st.markdown("""
+        <style>
+        .stApp {
+            background-color: #0E1117;
+            color: #FAFAFA;
+        }
+        .stDataFrame, .stTable {
+            color: #FAFAFA !important;
+        }
+        [data-testid="stHeader"] {
+            background-color: #0E1117;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-# Get text dictionary based on current language
+# Lấy từ điển ngôn ngữ hiện tại
 T = LANG[st.session_state["lang_code"]]
 
-st.title(f"📄 {T['page_title']}")
+# --- HEADER & SETTINGS POPUP ---
+col_head, col_set = st.columns([6, 1], gap="small")
+
+with col_head:
+    st.title(f"📄 {T['page_title']}")
+
+with col_set:
+    # Nút Cài đặt dạng Popup (Dropdown)
+    with st.popover(f"⚙️ {T['settings']}", use_container_width=True):
+        # 1. Toggle Ngôn ngữ
+        is_vn = st.session_state["lang_code"] == "vi"
+        toggle_lang = st.toggle("Tiếng Việt / English", value=is_vn)
+        new_lang = "vi" if toggle_lang else "en"
+        
+        # 2. Toggle Giao diện
+        st.write(f"**{T['theme_label']}**")
+        theme_opt = st.radio("Theme", [T["light"], T["dark"]], 
+                             index=0 if st.session_state["theme"]=="light" else 1, 
+                             label_visibility="collapsed", horizontal=True)
+        new_theme = "light" if theme_opt == T["light"] else "dark"
+
+        # Cập nhật State và Rerun nếu có thay đổi
+        if new_lang != st.session_state["lang_code"] or new_theme != st.session_state["theme"]:
+            st.session_state["lang_code"] = new_lang
+            st.session_state["theme"] = new_theme
+            st.rerun()
 
 # --- Info Box ---
 with st.container(border=True):
@@ -415,11 +470,14 @@ if st.session_state["do_convert"] and st.session_state["busy"]:
     try:
         files_map = {k: v["data"] for k, v in st.session_state["uploads"].items()}
         res_bytes, res_mime = process_conversion_internal(files_map, merge_to_one)
-        st.session_state["result_bytes"] = res_bytes
-        st.session_state["result_mime"] = res_mime
-        st.session_state["uploads"].clear()
-        st.session_state["sha_index"].clear()
-        st.success(T['success_msg'])
+        if res_bytes:
+            st.session_state["result_bytes"] = res_bytes
+            st.session_state["result_mime"] = res_mime
+            st.session_state["uploads"].clear()
+            st.session_state["sha_index"].clear()
+            st.success(T['success_msg'])
+        else:
+            st.warning("Không có dữ liệu hợp lệ để chuyển đổi.")
     except Exception as e:
         st.error(f"{T['error_msg']}{e}")
     finally:
@@ -442,8 +500,4 @@ if st.session_state["result_bytes"]:
     )
 
 # --- Custom Footer ---
-st.markdown(f"""
-    <div style="text-align:center;color:#888;margin-top:50px;font-size:14px;">
-      {T['copyright']}
-    </div>
-""", unsafe_allow_html=True)
+st.markdown(f'<div class="custom-footer">{T["copyright"]}</div>', unsafe_allow_html=True)
