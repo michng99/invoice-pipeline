@@ -12,7 +12,7 @@ import pandas as pd
 import xlsxwriter
 
 # ==============================================================================
-# CẤU HÌNH TRANG & STATE INIT
+# CẤU HÌNH TRANG
 # ==============================================================================
 st.set_page_config(
     page_title="Invoice Pipeline",
@@ -21,120 +21,70 @@ st.set_page_config(
     page_icon="📄"
 )
 
-# --- STATE MANAGEMENT ---
-if "uploads" not in st.session_state: st.session_state["uploads"] = {}
-if "sha_index" not in st.session_state: st.session_state["sha_index"] = {}
-if "last_activity" not in st.session_state: st.session_state["last_activity"] = time.time()
-if "busy" not in st.session_state: st.session_state["busy"] = False
-if "do_convert" not in st.session_state: st.session_state["do_convert"] = False
-if "result_bytes" not in st.session_state: st.session_state["result_bytes"] = None
-if "result_mime" not in st.session_state: st.session_state["result_mime"] = None
-# Mặc định Tiếng Việt và Light Mode
-if "lang_code" not in st.session_state: st.session_state["lang_code"] = "vi"
-if "theme" not in st.session_state: st.session_state["theme"] = "light"
-
 # ==============================================================================
-# CSS "CHỐNG ĐẠN" (XỬ LÝ UI & DARK MODE)
+# CSS "THUỐC ĐẶC TRỊ" (FIX UI MOBILE & ẨN FOOTER)
 # ==============================================================================
-
-# 1. CSS CHUNG (Ẩn Footer, Header, Whitelabel)
 st.markdown("""
     <style>
-        /* Ẩn triệt để Footer & Menu mặc định */
-        header[data-testid="stHeader"] {visibility: hidden;}
-        footer {display: none !important;}
-        #MainMenu {visibility: hidden !important;}
+        /* 1. ẨN SẠCH SẼ FOOTER CỦA STREAMLIT */
+        .stApp > footer {display: none !important;}
         .stDeployButton {display: none !important;}
+        [data-testid="stHeader"] {display: none !important;}
         [data-testid="stFooter"] {display: none !important;}
-        
-        /* Ẩn badge viewer (góc phải dưới) */
+        footer {visibility: hidden !important; height: 0px !important;}
+        #MainMenu {visibility: hidden !important;}
         .viewerBadge_container__1QSob {display: none !important;}
         
-        /* Căn chỉnh lại padding */
+        /* 2. FIX GIAO DIỆN MOBILE */
         .block-container {
-            padding-top: 2rem;
-            padding-bottom: 4rem;
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
         }
 
-        /* Copyright Footer tùy chỉnh */
+        /* 3. COPYRIGHT (KHÔNG GHIM, ĐỂ TỰ NHIÊN ĐỂ TRÁNH ĐÈ NÚT) */
         .custom-footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
             width: 100%;
-            background-color: transparent;
-            color: #888;
             text-align: center;
-            padding: 10px;
-            font-size: 13px;
-            font-family: sans-serif;
-            z-index: 9999;
-            pointer-events: none; /* Để click xuyên qua nếu cần */
+            color: #888;
+            padding: 20px 0;
+            margin-top: 50px;
+            border-top: 1px solid #333;
+            font-size: 12px;
+        }
+        
+        /* 4. CHẾ ĐỘ TỐI (DARK MODE FIX) */
+        /* Ép màu chữ sáng cho input và nút khi nền tối */
+        input, .stTextInput > div > div > input {
+            color: inherit !important; 
+        }
+        
+        /* Fix nút bấm trên mobile cho dễ bấm */
+        button {
+            min-height: 45px !important;
         }
     </style>
 """, unsafe_allow_html=True)
 
-# 2. CSS CHO DARK MODE (Fix lỗi hiển thị)
+# CSS bổ sung nếu đang ở Dark Mode (Streamlit xử lý theme tự động, ta chỉ patch thêm)
+if "theme" not in st.session_state: st.session_state["theme"] = "light"
+
 if st.session_state["theme"] == "dark":
     st.markdown("""
         <style>
-        /* Force nền tối */
-        .stApp {
-            background-color: #0E1117;
-            color: #FAFAFA;
-        }
-        
-        /* Chỉnh màu chữ trong bảng, nút bấm, input */
-        .stDataFrame, .stTable, .stMarkdown, p, h1, h2, h3 {
-            color: #FAFAFA !important;
-        }
-        
-        /* Button thường (Secondary) */
-        button[kind="secondary"] {
-            background-color: #262730 !important;
-            color: #FAFAFA !important;
-            border-color: #4b4b4b !important;
-        }
-        button[kind="secondary"]:hover {
-            border-color: #FF4B4B !important;
-            color: #FF4B4B !important;
-        }
-
-        /* Button chính (Primary) */
-        button[kind="primary"] {
-            background-color: #FF4B4B !important;
-            color: white !important;
-        }
-
-        /* Các ô Input / Selectbox */
-        div[data-baseweb="input"], div[data-baseweb="select"] {
-            background-color: #262730 !important;
-            color: white !important;
-            border-color: #4b4b4b !important;
-        }
-        
-        /* Fix màu chữ trong Input */
-        input.st-bd {
-            color: white !important;
-        }
-        
-        /* Popover container */
-        div[data-testid="stPopoverBody"] {
-            background-color: #262730 !important;
-            border: 1px solid #4b4b4b;
-        }
-        
-        /* Thông báo Toast/Alert */
-        div[data-baseweb="notification"] {
-            background-color: #262730 !important;
-        }
+        .stApp {background-color: #0E1117; color: #FAFAFA;}
+        div[data-baseweb="select"] > div {background-color: #262730 !important; color: white !important;}
+        div[data-baseweb="input"] {background-color: #262730 !important; color: white !important;}
+        input {color: white !important;}
         </style>
     """, unsafe_allow_html=True)
 
+# ==============================================================================
+# LOGIC CORE (GIỮ NGUYÊN)
+# ==============================================================================
 
-# ==============================================================================
-# LOGIC XỬ LÝ (CORE) - KHÔNG ĐỔI
-# ==============================================================================
+# ... (Giữ nguyên phần logic xử lý XML/Excel như cũ để tiết kiệm chỗ) ...
+# Ông cứ giữ nguyên phần logic code từ dòng "COLUMN_ORDER =" đến hết hàm "_df_to_xlsx_stream"
+# Nếu ông lỡ xóa thì copy lại từ phiên bản trước, chỉ thay đổi phần UI ở dưới này 👇
 
 COLUMN_ORDER = [
     "Mẫu số", "KH hóa đơn", "Số hóa đơn", "Ngày hóa đơn",
@@ -150,14 +100,11 @@ MAX_TOTAL_SIZE_MB = 50
 def _num(v):
     try: return float(Decimal(str(v)))
     except Exception: return None
-
 def _txt(x): return (x or "").strip()
-
 def _find_text(node: ET.Element, path: str):
     if node is None: return ""
     n = node.find(path)
     return _txt(n.text) if n is not None and n.text is not None else ""
-
 def _parse_invoice(xml_bytes: bytes) -> dict:
     try: root = ET.fromstring(xml_bytes)
     except ET.ParseError: return {}
@@ -196,7 +143,6 @@ def _parse_invoice(xml_bytes: bytes) -> dict:
             })
     invoice["Items"] = items
     return invoice
-
 def _rows_from_invoice(inv: dict) -> list[dict]:
     if not inv: return []
     ms  = inv.get("KHMSHDon") or ""
@@ -210,7 +156,6 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
     s_name = seller.get("Ten") or ""
     s_addr = seller.get("DChi") or ""
     ghichu_base = "Hoá đơn mới"
-
     items = inv.get("Items") or []
     rows = []
     def create_row(it, override_vals=None):
@@ -239,7 +184,6 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
         if (it.get("TChat") or "").strip() == "4": continue
         rows.append(create_row(it))
     return rows
-
 def _df_to_xlsx_stream(rows: list[dict], sheet_name="Data") -> io.BytesIO:
     df = pd.DataFrame(rows)
     df = df.reindex(columns=COLUMN_ORDER)
@@ -250,7 +194,6 @@ def _df_to_xlsx_stream(rows: list[dict], sheet_name="Data") -> io.BytesIO:
         df.to_excel(wr, index=False, sheet_name=sheet_name)
     buf.seek(0)
     return buf
-
 def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tuple[bytes, str]:
     per_file_rows = []
     named_streams = []
@@ -263,7 +206,6 @@ def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tu
             xlsx = _df_to_xlsx_stream(rows)
             named_streams.append((f"{name.rsplit('.',1)[0]}.xlsx", xlsx.getvalue()))
         except Exception: continue
-
     if not per_file_rows: return None, None
     if merge or len(named_streams) == 1:
         all_rows = []
@@ -278,10 +220,87 @@ def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tu
         return zbuf.getvalue(), "application/zip"
 
 # ==============================================================================
-# FRONTEND & STATE
+# FRONTEND
 # ==============================================================================
 
-# --- DICTIONARY NGÔN NGỮ ---
+# Init State
+if "uploads" not in st.session_state: st.session_state["uploads"] = {}
+if "sha_index" not in st.session_state: st.session_state["sha_index"] = {}
+if "last_activity" not in st.session_state: st.session_state["last_activity"] = time.time()
+if "busy" not in st.session_state: st.session_state["busy"] = False
+if "do_convert" not in st.session_state: st.session_state["do_convert"] = False
+if "result_bytes" not in st.session_state: st.session_state["result_bytes"] = None
+if "result_mime" not in st.session_state: st.session_state["result_mime"] = None
+if "lang_code" not in st.session_state: st.session_state["lang_code"] = "vi"
+if "theme" not in st.session_state: st.session_state["theme"] = "light"
+
+TTL_SECONDS = 3 * 60 
+
+def _touch(): st.session_state["last_activity"] = time.time()
+def _fmt_left(uploaded_at: float) -> str:
+    left = max(0, (uploaded_at + TTL_SECONDS) - time.time())
+    m, s = int(left // 60), int(left % 60)
+    return f"{m:02d}:{s:02d}"
+def _clear_all():
+    st.session_state["uploads"].clear()
+    st.session_state["sha_index"].clear()
+    st.session_state["result_bytes"] = None
+    st.session_state["do_convert"] = False
+    _touch()
+def _cleanup_ttl():
+    last = st.session_state.get("last_activity") or time.time()
+    if time.time() - last > TTL_SECONDS: _clear_all()
+def _sha256(b: bytes) -> str:
+    h = hashlib.sha256()
+    h.update(b)
+    return h.hexdigest()
+def _add_uploads(files, text_dict):
+    added, rep_n, rep_c = [], [], []
+    store = st.session_state["uploads"]
+    sha_idx = st.session_state["sha_index"]
+    current_count = len(store)
+    new_count = len(files) if files else 0
+    if current_count + new_count > MAX_FILES_ALLOWED:
+        st.error(text_dict["error_too_many"].format(max=MAX_FILES_ALLOWED))
+        return [], [], []
+    current_total_size = sum(item["size"] for item in store.values())
+    for f in files or []:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(0)
+        name = (f.name or "unknown.xml").strip()
+        if size > MAX_FILE_SIZE_MB * 1024 * 1024:
+            st.toast(text_dict["error_file_big"].format(name=name, size=MAX_FILE_SIZE_MB), icon="⚠️")
+            continue
+        if current_total_size + size > MAX_TOTAL_SIZE_MB * 1024 * 1024:
+            st.toast(text_dict["error_total_big"].format(name=name, size=MAX_TOTAL_SIZE_MB), icon="🛑")
+            break 
+        data = f.read()
+        sha = _sha256(data)
+        if sha in sha_idx and sha_idx[sha] in store:
+            old_name = sha_idx[sha]
+            store[old_name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
+            if old_name != name:
+                store[name] = store.pop(old_name)
+                sha_idx[sha] = name
+            rep_c.append(name)
+            current_total_size += size
+            continue
+        if name in store:
+            old_size = store[name]["size"]
+            current_total_size = current_total_size - old_size + size
+            rep_n.append(name)
+            store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
+            sha_idx[sha] = name
+            continue
+        store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
+        sha_idx[sha] = name
+        added.append(name)
+        current_total_size += size
+    _touch()
+    return added, rep_n, rep_c
+
+# --- UI LANGUAGE DICT ---
 LANG = {
     "en": {
         "page_title": "Invoice Pipeline",
@@ -341,87 +360,10 @@ LANG = {
     }
 }
 
-TTL_SECONDS = 3 * 60 
-
-def _touch():
-    st.session_state["last_activity"] = time.time()
-
-def _fmt_left(uploaded_at: float) -> str:
-    left = max(0, (uploaded_at + TTL_SECONDS) - time.time())
-    m, s = int(left // 60), int(left % 60)
-    return f"{m:02d}:{s:02d}"
-
-def _clear_all():
-    st.session_state["uploads"].clear()
-    st.session_state["sha_index"].clear()
-    st.session_state["result_bytes"] = None
-    st.session_state["do_convert"] = False
-    _touch()
-
-def _cleanup_ttl():
-    last = st.session_state.get("last_activity") or time.time()
-    if time.time() - last > TTL_SECONDS:
-        _clear_all()
-
-def _sha256(b: bytes) -> str:
-    h = hashlib.sha256()
-    h.update(b)
-    return h.hexdigest()
-
-def _add_uploads(files, text_dict):
-    added, rep_n, rep_c = [], [], []
-    store = st.session_state["uploads"]
-    sha_idx = st.session_state["sha_index"]
-
-    current_count = len(store)
-    new_count = len(files) if files else 0
-    if current_count + new_count > MAX_FILES_ALLOWED:
-        st.error(text_dict["error_too_many"].format(max=MAX_FILES_ALLOWED))
-        return [], [], []
-
-    current_total_size = sum(item["size"] for item in store.values())
-
-    for f in files or []:
-        f.seek(0, os.SEEK_END)
-        size = f.tell()
-        f.seek(0)
-        name = (f.name or "unknown.xml").strip()
-        if size > MAX_FILE_SIZE_MB * 1024 * 1024:
-            st.toast(text_dict["error_file_big"].format(name=name, size=MAX_FILE_SIZE_MB), icon="⚠️")
-            continue
-        if current_total_size + size > MAX_TOTAL_SIZE_MB * 1024 * 1024:
-            st.toast(text_dict["error_total_big"].format(name=name, size=MAX_TOTAL_SIZE_MB), icon="🛑")
-            break 
-        data = f.read()
-        sha = _sha256(data)
-        if sha in sha_idx and sha_idx[sha] in store:
-            old_name = sha_idx[sha]
-            store[old_name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-            if old_name != name:
-                store[name] = store.pop(old_name)
-                sha_idx[sha] = name
-            rep_c.append(name)
-            current_total_size += size
-            continue
-        if name in store:
-            old_size = store[name]["size"]
-            current_total_size = current_total_size - old_size + size
-            rep_n.append(name)
-            store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-            sha_idx[sha] = name
-            continue
-        store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-        sha_idx[sha] = name
-        added.append(name)
-        current_total_size += size
-    _touch()
-    return added, rep_n, rep_c
-
-# ========= UI RENDER =========
+# --- RENDER UI ---
 _cleanup_ttl()
 T = LANG[st.session_state["lang_code"]]
 
-# --- HEADER & SETTINGS ---
 col_head, col_set = st.columns([6, 1], gap="small")
 with col_head:
     st.title(f"{T['page_title']}")
@@ -442,7 +384,6 @@ with col_set:
             st.session_state["theme"] = new_theme
             st.rerun()
 
-# --- Info Box ---
 with st.container(border=True):
     col1, col2 = st.columns([3, 1])
     with col1: st.info(f"ℹ️ {T['mode_info']}")
@@ -452,7 +393,6 @@ with st.container(border=True):
 
 st.divider()
 
-# --- Upload Zone ---
 uploaded_files = st.file_uploader(T['upload_label'], type=["xml"], accept_multiple_files=True)
 if uploaded_files:
     added, rep_n, rep_c = _add_uploads(uploaded_files, T)
@@ -462,7 +402,6 @@ if uploaded_files:
     if rep_c: msg.append(f"♻️ {T['replaced_content']} {len(rep_c)}")
     if msg: st.toast(" | ".join(msg))
 
-# --- File Table ---
 if st.session_state["uploads"]:
     colA, colB = st.columns([3,1])
     with colA:
@@ -476,7 +415,6 @@ if st.session_state["uploads"]:
 else:
     st.caption(f"_{T['empty_list']}_")
 
-# --- Convert Action ---
 num_files = len(st.session_state["uploads"])
 merge_to_one = st.checkbox(T['merge_label'], value=True, disabled=num_files <= 1)
 convert_btn = st.button(T['convert_btn'], type="primary", disabled=num_files == 0 or st.session_state["busy"])
@@ -506,7 +444,6 @@ if st.session_state["do_convert"] and st.session_state["busy"]:
         _touch()
         st.rerun()
 
-# --- Download ---
 if st.session_state["result_bytes"]:
     ext = "xlsx" if "spreadsheet" in str(st.session_state["result_mime"]) else "zip"
     fname = "Data.xlsx" if ext == "xlsx" else "excels.zip"
@@ -519,5 +456,5 @@ if st.session_state["result_bytes"]:
         type="primary"
     )
 
-# --- Custom Footer ---
+# --- CUSTOM FOOTER (ĐÃ BỎ POSITION FIXED) ---
 st.markdown(f'<div class="custom-footer">{T["copyright"]}</div>', unsafe_allow_html=True)
