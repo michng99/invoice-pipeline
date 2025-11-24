@@ -338,4 +338,4 @@ if st.session_state["result_bytes"]:
         type="primary"
     )
 
-st.markdown('<div style="text-align:center;color:#888;margin-top:50px;">© 2025 Michng99 | All-in-One Version</div>', unsafe_allow_html=True)
+st.markdown('<div style="text-align:center;color:#888;margin-top:50px;">© 2025 Chương Minh | All Rights Reserved</div>', unsafe_allow_html=True)
