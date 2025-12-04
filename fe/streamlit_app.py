@@ -4,8 +4,7 @@ import hashlib
 import zipfile
 import traceback
 from decimal import Decimal
-from typing import List, Tuple, Dict, Any
-from xml.etree import ElementTree as ET
+from typing import List, Dict, Any
 
 import streamlit as st
 import pandas as pd
@@ -13,7 +12,39 @@ import xlsxwriter
 import xmltodict # Yêu cầu đã cài trong requirements.txt
 
 # ==============================================================================
-# PHẦN 1: LOGIC CONVERTER (PORT TỪ app/converters/xml_to_xlsx.py)
+# 1. CẤU HÌNH & CSS (CLEAN UI)
+# ==============================================================================
+st.set_page_config(
+    page_title="Invoice Pipeline",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+    page_icon="📄"
+)
+
+st.markdown("""
+    <style>
+        /* Ẩn UI rác */
+        a[href*="streamlit.io/cloud"], div[class*="viewerBadge"], 
+        #MainMenu, footer, header, [data-testid="stHeader"], .stDeployButton 
+        { display: none !important; }
+        
+        .block-container { padding-top: 1rem !important; padding-bottom: 150px !important; }
+        .custom-footer {
+            width: 100%; text-align: center; color: #888;
+            padding-top: 20px; margin-bottom: 20px; border-top: 1px solid #333;
+            font-size: 12px; font-family: sans-serif;
+        }
+        button { min-height: 48px !important; }
+        input { color: inherit !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+if "theme" not in st.session_state: st.session_state["theme"] = "light"
+if st.session_state["theme"] == "dark":
+    st.markdown("""<style>.stApp {background-color: #0E1117; color: #FAFAFA;} input {color: white !important;}</style>""", unsafe_allow_html=True)
+
+# ==============================================================================
+# 2. CORE LOGIC (XMLTODICT + FUZZY SEARCH)
 # ==============================================================================
 
 COLUMN_ORDER = [
@@ -27,125 +58,213 @@ MAX_FILES_ALLOWED = 50
 MAX_FILE_SIZE_MB = 10           
 
 def _num(v):
+    if not v: return 0.0
+    try: return float(str(v).replace(",", "").strip())
+    except: return 0.0
+
+def _get_fuzzy(obj: dict, targets: List[str]) -> str:
+    """
+    Tìm kiếm giá trị trong dict, bỏ qua namespace prefix.
+    Ví dụ: targets=['TSuat'] sẽ tìm thấy cả 'inv:TSuat', 'ns1:TSuat', 'TSuat'.
+    """
+    if not isinstance(obj, dict): return ""
+    
+    # 1. Tìm chính xác trước (Nhanh)
+    for t in targets:
+        if t in obj and obj[t]: return str(obj[t])
+    
+    # 2. Tìm mờ (Bỏ qua prefix namespace like 'inv:...')
+    # Duyệt qua các key thực tế trong dict
+    for key, val in obj.items():
+        # Lấy tên key thuần (bỏ prefix sau dấu :)
+        clean_key = key.split(":")[-1] if ":" in key else key
+        if clean_key in targets and val:
+            return str(val)
+    return ""
+
+def _parse_invoice_smart(xml_bytes: bytes, filename: str) -> dict:
     try:
-        return float(Decimal(str(v)))
-    except Exception:
-        return None
+        # Dùng xmltodict: Parse toàn bộ ra Dict
+        # disable_entities=True để an toàn bảo mật
+        doc = xmltodict.parse(xml_bytes, disable_entities=True)
+        
+        # Tìm root (Lấy value đầu tiên bất kể key là gì)
+        root_key = list(doc.keys())[0]
+        hdon = doc[root_key]
+        
+        # Hàm tìm nhanh header (chấp nhận đệ quy tìm key trong dict)
+        def find_val(data, keys):
+            return _get_fuzzy(data, keys)
 
-def _txt(x):
-    return (x or "").strip()
+        # Chuẩn hóa cấu trúc
+        # Tìm DLHDon (Dữ liệu hóa đơn)
+        dlhdon = {}
+        for k, v in hdon.items():
+            if "DLHDon" in k: dlhdon = v; break
+        
+        # Nếu không thấy DLHDon, dùng chính root (một số hóa đơn lạ)
+        if not dlhdon: dlhdon = hdon
 
-def _find_text(node: ET.Element, path: str):
-    if node is None: return ""
-    n = node.find(path)
-    return _txt(n.text) if n is not None and n.text is not None else ""
+        # Tìm TTChung
+        ttchung = {}
+        for k, v in dlhdon.items():
+            if "TTChung" in k: ttchung = v; break
 
-def _parse_invoice(xml_bytes: bytes) -> dict:
-    # Dùng ElementTree như code gốc
-    root = ET.fromstring(xml_bytes)
+        # Tìm Header
+        invoice = {
+            "KHMSHDon": _get_fuzzy(ttchung, ["KHMSHDon", "MauSo"]),
+            "KHHDon":   _get_fuzzy(ttchung, ["KHHDon", "KyHieu"]),
+            "SHDon":    _get_fuzzy(ttchung, ["SHDon", "SoHoaDon"]),
+            "NLap":     _get_fuzzy(ttchung, ["NLap", "NgayLap"]),
+            "DVTTe":    _get_fuzzy(ttchung, ["DVTTe", "DonViTienTe"]) or "VND",
+            "TGia":     _get_fuzzy(ttchung, ["TGia", "TyGia"]) or "1",
+        }
+        
+        # Tìm người bán
+        ndhdon = {}
+        for k, v in dlhdon.items():
+            if "NDHDon" in k: ndhdon = v; break
+            
+        nban = {}
+        for k, v in ndhdon.items():
+            if "NBan" in k or "Seller" in k: nban = v; break
+            
+        invoice["NBan"] = {
+            "Ten":  _get_fuzzy(nban, ["Ten", "Name"]),
+            "MST":  _get_fuzzy(nban, ["MST", "MaSoThue"]),
+            "DChi": _get_fuzzy(nban, ["DChi", "DiaChi"]),
+        }
+        
+        # Tìm Hàng hóa
+        items = []
+        dshhdv = {}
+        for k, v in ndhdon.items():
+            if "DSHHDVu" in k: dshhdv = v; break
+            
+        if dshhdv:
+            # Tìm list HHDVu (Có thể là list hoặc dict)
+            raw = []
+            for k, v in dshhdv.items():
+                if "HHDVu" in k or "Item" in k: 
+                    raw = v
+                    break
+            
+            if isinstance(raw, dict): raw = [raw] # Chuẩn hóa thành list
+            
+            # Duyệt từng dòng để trích xuất (Flatten)
+            for it in raw:
+                # Tìm TTKhac (Thông tin khác)
+                ttkhac = {}
+                for k, v in it.items():
+                    if "TTKhac" in k or "ThongTinKhac" in k: ttkhac = v; break
 
-    def f(p): 
-        n = root.find(p)
-        return _txt(n.text) if n is not None and n.text is not None else ""
+                # --- 1. SĂN LÙNG THUẾ SUẤT ---
+                # List các tên biến thể (PAS dùng TSuatGTGT, LTSuat...)
+                ts_keys = ["TSuat", "ThueSuat", "TSuatGTGT", "ThueSuatGTGT", "TaxRate", "LTSuat", "LTS"]
+                tsuat = _get_fuzzy(it, ts_keys)
+                if not tsuat: tsuat = _get_fuzzy(ttkhac, ts_keys) # Tìm trong con
 
-    # Thông tin chung
-    invoice = {
-        "KHMSHDon": f("./DLHDon/TTChung/KHMSHDon"),
-        "KHHDon":   f("./DLHDon/TTChung/KHHDon"),
-        "SHDon":    f("./DLHDon/TTChung/SHDon"),
-        "NLap":     f("./DLHDon/TTChung/NLap"),
-        "DVTTe":    f("./DLHDon/TTChung/DVTTe") or "VND",
-        "TGia":     f("./DLHDon/TTChung/TGia") or "1",
-    }
+                # --- 2. SĂN LÙNG TIỀN ---
+                vat_keys = ["VATAmount", "TienThue", "TienThueGTGT", "VatAmount"]
+                vat = _get_fuzzy(it, vat_keys)
+                if not vat: vat = _get_fuzzy(ttkhac, vat_keys)
+                
+                amt_keys = ["Amount", "TongTien", "ThanhTienSauThue"]
+                amt = _get_fuzzy(it, amt_keys)
+                if not amt: amt = _get_fuzzy(ttkhac, amt_keys)
 
-    # Người bán
-    nban = root.find("./DLHDon/NDHDon/NBan")
-    invoice["NBan"] = {
-        "Ten":  _find_text(nban, "Ten") if nban is not None else "",
-        "MST":  _find_text(nban, "MST") if nban is not None else "",
-        "DChi": _find_text(nban, "DChi") if nban is not None else "",
-    }
-
-    # Hàng hoá
-    items_parent = root.find("./DLHDon/NDHDon/DSHHDVu")
-    items = []
-    if items_parent is not None:
-        for it in items_parent.findall("./HHDVu"):
-            items.append({
-                "TChat":   _find_text(it, "TChat"),
-                "MHHDVu":  _find_text(it, "MHHDVu"),
-                "THHDVu":  _find_text(it, "THHDVu"),
-                "DVTinh":  _find_text(it, "DVTinh"),
-                "SLuong":  _find_text(it, "SLuong") or "0",
-                "DGia":    _find_text(it, "DGia") or "0",
-                "ThTien":  _find_text(it, "ThTien") or "0",
-                "TSuat":   _find_text(it, "TSuat"),
-                "VATAmount": _find_text(it, "./TTKhac/VATAmount") or "0",
-                "Amount":    _find_text(it, "./TTKhac/Amount") or "0",
-            })
-    invoice["Items"] = items
-    return invoice
+                items.append({
+                    "TChat":   _get_fuzzy(it, ["TChat", "TinhChat"]),
+                    "MHHDVu":  _get_fuzzy(it, ["MHHDVu", "MaHang"]),
+                    "THHDVu":  _get_fuzzy(it, ["THHDVu", "TenHang"]),
+                    "DVTinh":  _get_fuzzy(it, ["DVTinh", "DonViTinh"]),
+                    "SLuong":  _get_fuzzy(it, ["SLuong", "SoLuong"]),
+                    "DGia":    _get_fuzzy(it, ["DGia", "DonGia"]),
+                    "ThTien":  _get_fuzzy(it, ["ThTien", "ThanhTien", "ThanhTienTruocThue"]),
+                    "TSuat":   tsuat,
+                    "VATAmount": vat,
+                    "Amount":    amt
+                })
+                
+        invoice["Items"] = items
+        return invoice
+    except Exception as e:
+        print(f"Lỗi parse {filename}: {e}")
+        return {}
 
 def _rows_from_invoice(inv: dict) -> list[dict]:
-    ms  = inv.get("KHMSHDon") or ""
-    kh  = inv.get("KHHDon") or ""
-    so  = inv.get("SHDon") or ""
-    ngay = inv.get("NLap") or ""
-    cur = inv.get("DVTTe") or "VND"
-    rate = inv.get("TGia") or 1
-    seller = inv.get("NBan") or {}
-    s_mst  = seller.get("MST") or ""
-    s_name = seller.get("Ten") or ""
-    s_addr = seller.get("DChi") or ""
-    ghichu = "Hoá đơn mới"
+    if not inv: return []
+    try:
+        ms = inv.get("KHMSHDon") or ""
+        kh = inv.get("KHHDon") or ""
+        so = inv.get("SHDon") or ""
+        ngay = inv.get("NLap") or ""
+        cur = inv.get("DVTTe") or "VND"
+        rate = _num(inv.get("TGia")) or 1
+        seller = inv.get("NBan") or {}
+        s_mst = seller.get("MST") or ""
+        s_name = seller.get("Ten") or ""
+        s_addr = seller.get("DChi") or ""
+        ghichu = "Hoá đơn mới"
 
-    items = inv.get("Items") or []
-    rows = []
+        items = inv.get("Items") or []
+        rows = []
 
-    # a) Các dòng mô tả TChat=4
-    for it in items:
-        if (it.get("TChat") or "").strip() == "4":
-            row = {k: "" for k in COLUMN_ORDER}
-            row.update({
+        for it in items:
+            sl = _num(it["SLuong"])
+            dg = _num(it["DGia"])
+            tht = _num(it["ThTien"])
+            vat = _num(it["VATAmount"])
+            total = _num(it["Amount"])
+            
+            # --- XỬ LÝ THUẾ SUẤT ---
+            ts_raw = it["TSuat"]
+            ts_val = 0.0
+            
+            # Parse % từ chuỗi (8, 8%, 0.08)
+            if ts_raw:
+                try:
+                    s = str(ts_raw).replace("%","").replace(",",".")
+                    if s and s[0].isdigit():
+                        val = float(s)
+                        ts_val = val / 100 if val > 1 else val
+                except: pass
+
+            # --- TÍNH TOÁN BÙ TRỪ ---
+            
+            # 1. Tự tính VAT nếu thiếu
+            if vat == 0 and tht != 0 and ts_val > 0:
+                vat = tht * ts_val
+                if str(cur).upper() == "VND": vat = round(vat)
+            
+            # 2. Suy luận ngược % Thuế (QUAN TRỌNG CHO FILE PAS/VIETNGUYEN)
+            final_ts_display = ts_raw
+            if (not final_ts_display or final_ts_display == "0") and vat > 0 and tht > 0:
+                try:
+                    calc = (vat / tht) * 100
+                    # Làm tròn vào khung
+                    if abs(calc - 5) < 0.5: final_ts_display = "5%"
+                    elif abs(calc - 8) < 0.5: final_ts_display = "8%"
+                    elif abs(calc - 10) < 0.5: final_ts_display = "10%"
+                    elif abs(calc - 0) < 0.1: final_ts_display = "0%"
+                    else: final_ts_display = f"{round(calc, 2)}%"
+                except: pass
+
+            if total == 0: total = tht + vat
+
+            r = {k: "" for k in COLUMN_ORDER}
+            r.update({
                 "Mẫu số": ms, "KH hóa đơn": kh, "Số hóa đơn": so, "Ngày hóa đơn": ngay,
                 "ST người bán": s_mst, "Tên người bán": s_name, "ĐC người bán": s_addr,
-                "C người bán": "",
-                "Mã hàng": "", "Tên hàng": it.get("THHDVu") or "", "Đơn vị tính": "",
-                "Số lượng": _num(it.get("SLuong") or 0) or 0,
-                "Đơn giá":  _num(it.get("DGia") or 0) or 0,
-                "Tiền hàng": _num(it.get("ThTien") or 0) or 0,
-                "Thuế suất": (it.get("TSuat") or "").replace("%","").replace(",",".") if it.get("TSuat") else "",
-                "Tiền thuế": _num(it.get("VATAmount") or 0) or 0,
-                "Cộng tiền": _num(it.get("Amount") or 0) or 0,
-                "Ghi chú": ghichu, "Đơn vị tiền": cur, "Tỷ giá": _num(rate) or 1,
-                "Cờ (Tchat)": 4,
+                "Ghi chú": ghichu, "Đơn vị tiền": cur, "Tỷ giá": rate,
+                "Mã hàng": it["MHHDVu"], "Tên hàng": it["THHDVu"], "Đơn vị tính": it["DVTinh"],
+                "Số lượng": sl, "Đơn giá": dg, "Tiền hàng": tht,
+                "Thuế suất": final_ts_display, "Tiền thuế": vat, "Cộng tiền": total,
+                "Cờ (Tchat)": it["TChat"]
             })
-            rows.append(row)
-
-    # b) Hàng hóa còn lại
-    for it in items:
-        if (it.get("TChat") or "").strip() == "4":
-            continue
-        row = {k: "" for k in COLUMN_ORDER}
-        row.update({
-            "Mẫu số": ms, "KH hóa đơn": kh, "Số hóa đơn": so, "Ngày hóa đơn": ngay,
-            "ST người bán": s_mst, "Tên người bán": s_name, "ĐC người bán": s_addr,
-            "C người bán": "",
-            "Mã hàng": it.get("MHHDVu") or "",
-            "Tên hàng": it.get("THHDVu") or "",
-            "Đơn vị tính": it.get("DVTinh") or "",
-            "Số lượng": _num(it.get("SLuong") or 0) or 0,
-            "Đơn giá":  _num(it.get("DGia") or 0) or 0,
-            "Tiền hàng": _num(it.get("ThTien") or 0) or 0,
-            "Thuế suất": (it.get("TSuat") or "").replace("%","").replace(",",".") if it.get("TSuat") else "",
-            "Tiền thuế": _num(it.get("VATAmount") or 0) or 0,
-            "Cộng tiền": _num(it.get("Amount") or 0) or 0,
-            "Ghi chú": ghichu, "Đơn vị tiền": cur, "Tỷ giá": _num(rate) or 1,
-            "Cờ (Tchat)": _num(it.get("TChat")) if (it.get("TChat") or "").isdigit() else "",
-        })
-        rows.append(row)
-
-    return rows
+            rows.append(r)
+        return rows
+    except Exception: return []
 
 def _df_to_xlsx_stream(rows: list[dict]) -> io.BytesIO:
     df = pd.DataFrame(rows)
@@ -159,48 +278,57 @@ def _df_to_xlsx_stream(rows: list[dict]) -> io.BytesIO:
     return buf
 
 # ==============================================================================
-# PHẦN 2: FRONTEND STREAMLIT (ĐÃ SỬA LỖI MẤT NÚT DOWNLOAD)
+# 3. FRONTEND (TỐI ƯU UPLOAD - NO PROCESSING ON UPLOAD)
 # ==============================================================================
 
 if "uploads" not in st.session_state: st.session_state.update({"uploads":{}, "busy":False, "lang_code":"vi", "theme":"light"})
 
 def _add_uploads(files, T):
     store = st.session_state["uploads"]
-    sha_idx = st.session_state["sha_index"]
+    if len(store) + len(files) > MAX_FILES_ALLOWED:
+        st.error(T["error_too_many"].format(max=MAX_FILES_ALLOWED)); return
+    
+    for f in files:
+        try:
+            name = f.name
+            # CHỈ LƯU BYTES, KHÔNG XỬ LÝ GÌ CẢ -> KHÔNG LAG
+            data = f.read() 
+            if len(data) > MAX_FILE_SIZE_MB*1024*1024: 
+                st.toast(f"File {name} quá lớn", icon="⚠️"); continue
+            store[name] = {"data": data, "size": len(data), "uploaded_at": time.time()}
+        except: continue
 
-    for f in files or []:
-        name = (f.name or "unknown.xml").strip()
-        data = f.read()
-        size = len(data)
-        sha = _sha256(data)
+# --- UI LANGUAGE ---
+LANG = {
+    "vi": {
+        "page_title": "Xử lý Hóa đơn", "settings": "Cài đặt", "theme_label": "Giao diện",
+        "mode_info": "Chế độ: **All-in-One** (Bảo mật & Riêng tư)", "check_sys": "Kiểm tra hệ thống", "sys_ok": "✅ Ổn định",
+        "upload_label": "Thả file XML vào đây", "added": "Đã thêm", "clear_all": "Xoá tất cả",
+        "col_name": "Tên file", "col_size": "Kích thước", "merge_label": "Gộp 1 file", "convert_btn": "🚀 Chuyển đổi",
+        "success_msg": "✅ Xong!", "error_msg": "Lỗi xử lý.", "download_btn": "⬇️ Tải về",
+        "copyright": "© 2025 Chuong Minh | All Rights Reserved", "error_too_many": "Quá tải.", "empty_list": "Chưa có file."
+    },
+    "en": {
+        "page_title": "Invoice Pipeline", "settings": "Settings", "theme_label": "Theme",
+        "mode_info": "Mode: **All-in-One** (Secure & Private)", "check_sys": "Check System", "sys_ok": "✅ Stable",
+        "upload_label": "Drop XML files", "added": "Added", "clear_all": "Clear All",
+        "col_name": "Filename", "col_size": "Size", "merge_label": "Merge to one", "convert_btn": "🚀 Convert",
+        "success_msg": "✅ Done!", "error_msg": "Error.", "download_btn": "⬇️ Download",
+        "copyright": "© 2025 Chuong Minh | All Rights Reserved", "error_too_many": "Too many files.", "empty_list": "No files."
+    }
+}
 
-        if sha in sha_idx and sha_idx[sha] in store:
-            old_name = sha_idx[sha]
-            store[old_name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-            if old_name != name:
-                store[name] = store.pop(old_name)
-                sha_idx[sha] = name
-            rep_c.append(name)
-            continue
-
-        if name in store:
-            rep_n.append(name)
-            store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-            sha_idx[sha] = name
-            continue
-
-        store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-        sha_idx[sha] = name
-        added.append(name)
-
-    _touch()
-    return added, rep_n, rep_c
-
-# ========= UI =========
-_init_state()
-_cleanup_ttl()
-
-st.title("📄 Invoice Pipeline | All-in-One")
+T = LANG[st.session_state["lang_code"]]
+col_head, col_set = st.columns([6, 1], gap="small")
+with col_head: st.title(f"{T['page_title']}")
+with col_set:
+    with st.popover(f"⚙️ {T['settings']}", use_container_width=True):
+        is_vn = st.session_state["lang_code"] == "vi"
+        if st.toggle("Tiếng Việt / English", value=is_vn): st.session_state["lang_code"] = "vi"
+        else: st.session_state["lang_code"] = "en"
+        theme = st.radio("Theme", ["Light", "Dark"], index=0 if st.session_state["theme"]=="light" else 1, horizontal=True)
+        st.session_state["theme"] = theme.lower()
+        if st.button("Apply"): st.rerun()
 
 with st.container(border=True):
     c1, c2 = st.columns([3,1])
@@ -208,74 +336,42 @@ with st.container(border=True):
     if c2.button(f"🔗 {T['check_sys']}", use_container_width=True): c2.success(T["sys_ok"])
 
 st.divider()
+uploaded_files = st.file_uploader(T['upload_label'], type=["xml"], accept_multiple_files=True)
+if uploaded_files: 
+    _add_uploads(uploaded_files, T)
+    st.rerun() # Refresh ngay để enable nút convert (File đã nằm trong Session State)
 
-# --- Upload Zone ---
-uploaded_files = st.file_uploader("Thả file XML vào đây", type=["xml"], accept_multiple_files=True)
-if uploaded_files:
-    added, rep_n, rep_c = _add_uploads(uploaded_files)
-    msg = []
-    if added: msg.append(f"✅ Thêm {len(added)}")
-    if rep_n: msg.append(f"♻️ Ghi đè tên {len(rep_n)}")
-    if rep_c: msg.append(f"♻️ Ghi đè nội dung {len(rep_c)}")
-    if msg: st.toast(" | ".join(msg))
-
-# --- File Table ---
 if st.session_state["uploads"]:
-    colA, colB = st.columns([3,1])
-    with colA:
-        rows = [{"Tên file": k, "Size": v["size"], "TTL": _fmt_left(v["uploaded_at"])} 
-                for k, v in st.session_state["uploads"].items()]
-        st.dataframe(rows, hide_index=True, use_container_width=True)
-    with colB:
-        if st.button("🧽 Xoá hết", use_container_width=True):
-            _clear_all()
-            st.rerun()
+    c1, c2 = st.columns([3,1])
+    rows = [{T['col_name']:k, T['col_size']:v["size"]} for k,v in st.session_state["uploads"].items()]
+    c1.dataframe(rows, use_container_width=True, hide_index=True)
+    if c2.button(f"🧽 {T['clear_all']}", use_container_width=True): 
+        st.session_state["uploads"].clear(); st.session_state.pop("result_bytes", None); st.rerun()
+else: st.caption(f"_{T['empty_list']}_")
 
-# --- Convert Action ---
-num_files = len(st.session_state["uploads"])
-merge_to_one = st.checkbox("Gộp thành 1 file Excel", value=True, disabled=num_files <= 1)
-convert_btn = st.button("🚀 Convert Ngay", type="primary", disabled=num_files == 0 or st.session_state["busy"])
+merge = st.checkbox(T['merge_label'], value=True)
+if st.button(T['convert_btn'], type="primary", disabled=not st.session_state["uploads"]):
+    with st.spinner("Đang xử lý..."): # Hiện spinner để user biết đang chạy
+        try:
+            files_map = {k: v["data"] for k,v in st.session_state["uploads"].items()}
+            per_file = []
+            for name, data in files_map.items():
+                inv = _parse_invoice_smart(data, name) 
+                rows = _rows_from_invoice(inv)
+                if rows: per_file.append(rows)
+            
+            if per_file:
+                all_rows = [r for sub in per_file for r in sub]
+                xlsx = _df_to_xlsx_stream(all_rows)
+                st.session_state["result_bytes"] = xlsx.getvalue()
+                st.session_state["result_mime"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                st.success(T['success_msg'])
+            else: st.warning("Không tìm thấy dữ liệu hợp lệ.")
+        except Exception as e: 
+            print(f"Error: {e}")
+            st.error(T['error_msg'])
 
-if convert_btn and not st.session_state["busy"]:
-    st.session_state["do_convert"] = True
-    st.session_state["busy"] = True
-    st.rerun()
+if st.session_state.get("result_bytes"):
+    st.download_button(T['download_btn'], st.session_state["result_bytes"], "Data.xlsx", st.session_state["result_mime"], type="primary")
 
-if st.session_state["do_convert"] and st.session_state["busy"]:
-    try:
-        # Lấy dữ liệu từ session state
-        files_map = {k: v["data"] for k, v in st.session_state["uploads"].items()}
-        
-        # Gọi hàm xử lý nội bộ (logic mới)
-        res_bytes, res_mime = process_conversion_internal(files_map, merge_to_one)
-        
-        st.session_state["result_bytes"] = res_bytes
-        st.session_state["result_mime"] = res_mime
-        
-        # Dọn dẹp
-        st.session_state["uploads"].clear()
-        st.session_state["sha_index"].clear()
-        st.success("✅ Xử lý thành công!")
-    except Exception as e:
-        st.error(f"Lỗi xử lý: {e}")
-    finally:
-        st.session_state["do_convert"] = False
-        st.session_state["busy"] = False
-        _touch()
-        st.rerun()
-
-# --- Download ---
-if st.session_state["result_bytes"]:
-    ext = "xlsx" if "spreadsheet" in str(st.session_state["result_mime"]) else "zip"
-    fname = "Data.xlsx" if ext == "xlsx" else "excels.zip"
-    
-    st.download_button(
-        f"⬇️ Tải về kết quả ({ext.upper()})",
-        data=st.session_state["result_bytes"],
-        file_name=fname,
-        mime=st.session_state["result_mime"],
-        use_container_width=True,
-        type="primary"
-    )
-
-st.markdown('<div style="text-align:center;color:#888;margin-top:50px;">© 2025 Michng99 | All-in-One Version</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="custom-footer">{T["copyright"]}</div>', unsafe_allow_html=True)
