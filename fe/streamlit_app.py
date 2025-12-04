@@ -28,16 +28,17 @@ MAX_FILE_SIZE_MB = 10
 ALLOWED_EXTENSIONS = ["xml"]
 
 # ==============================================================================
-# 2. BỘ TỪ ĐIỂN NGÔN NGỮ (RESTORED)
+# 2. TỪ ĐIỂN NGÔN NGỮ
 # ==============================================================================
 LANG = {
     "vi": {
         "title": "Invoice Pipeline", "subtitle": "Hệ thống xử lý hóa đơn tự động & tối ưu thuế",
-        "upload_lbl": "Tải lên file XML hóa đơn (Kéo thả vào đây)",
+        "upload_lbl": "Tải lên file XML hóa đơn",
+        "drag_drop": "Kéo thả file vào đây",
         "list_header": "Danh sách file chờ xử lý",
         "btn_process": "🚀 Xử lý & Xuất Excel",
         "btn_clear": "Làm mới",
-        "btn_dl": "⬇️ TẢI FILE EXCEL NGAY",
+        "btn_dl": "⬇️ TẢI FILE KẾT QUẢ",
         "toast_add": "Đã thêm file mới!",
         "status_process": "Đang phân tích dữ liệu...",
         "status_done": "Hoàn tất!",
@@ -47,7 +48,8 @@ LANG = {
     },
     "en": {
         "title": "Invoice Pipeline", "subtitle": "Automated Invoice Processing & Tax Optimization",
-        "upload_lbl": "Upload XML Invoices (Drag & Drop here)",
+        "upload_lbl": "Upload XML Invoices",
+        "drag_drop": "Drag & Drop files here",
         "list_header": "Pending Files",
         "btn_process": "🚀 Process to Excel",
         "btn_clear": "Reset",
@@ -63,99 +65,157 @@ LANG = {
 T = LANG[st.session_state["lang_code"]]
 
 # ==============================================================================
-# 3. CSS ĐỘNG (DYNAMIC THEME ENGINE)
+# 3. SUPER-MODERN CSS ENGINE (GLASSMORPHISM)
 # ==============================================================================
-# Xác định màu sắc dựa trên chế độ đang chọn
 is_dark = st.session_state["theme_mode"] == "dark"
 
-theme_cfg = {
-    "bg_color": "#111827" if is_dark else "#F3F4F6",        # Nền tổng
-    "card_bg":  "#1F2937" if is_dark else "#ffffff",        # Nền thẻ/khung
-    "text_main": "#F9FAFB" if is_dark else "#1F2937",       # Chữ chính
-    "text_sub":  "#9CA3AF" if is_dark else "#6B7280",       # Chữ phụ
-    "border":    "#374151" if is_dark else "#E5E7EB",       # Viền
-    "accent":    "#818CF8" if is_dark else "#4F46E5",       # Màu tím chủ đạo
-    "accent_hover": "#6366F1" if is_dark else "#4338ca"     # Màu tím khi hover
+# Cấu hình màu sắc nâng cao
+theme = {
+    # Gradient nền (Aurora effect)
+    "bg_gradient": 
+        "radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(225,39%,30%,1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(339,49%,30%,1) 0, transparent 50%)" 
+        if is_dark else 
+        "radial-gradient(at 0% 0%, hsla(253,16%,7%,0.1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(225,39%,30%,0.1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(339,49%,30%,0.1) 0, transparent 50%)",
+    
+    "bg_color": "#0f172a" if is_dark else "#f8fafc",
+    
+    # Hiệu ứng kính (Glass card)
+    "glass_bg": "rgba(17, 24, 39, 0.7)" if is_dark else "rgba(255, 255, 255, 0.7)",
+    "glass_border": "rgba(255, 255, 255, 0.1)" if is_dark else "rgba(255, 255, 255, 0.4)",
+    "glass_shadow": "0 8px 32px 0 rgba(0, 0, 0, 0.3)" if is_dark else "0 8px 32px 0 rgba(31, 38, 135, 0.1)",
+    
+    "text_main": "#f1f5f9" if is_dark else "#1e293b",
+    "text_sub": "#94a3b8" if is_dark else "#64748b",
+    "accent": "#6366f1", # Indigo 500
+    "accent_glow": "0 0 20px rgba(99, 102, 241, 0.5)"
 }
 
 st.markdown(f"""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
-        html, body, [class*="css"] {{
-            font-family: 'Inter', sans-serif;
-            color: {theme_cfg['text_main']};
-            background-color: {theme_cfg['bg_color']};
-        }}
-
-        /* Ghi đè nền mặc định của Streamlit */
+        /* --- GLOBAL RESET & BACKGROUND --- */
         .stApp {{
-            background-color: {theme_cfg['bg_color']} !important;
+            background-color: {theme['bg_color']};
+            background-image: {theme['bg_gradient']};
+            background-attachment: fixed;
+            background-size: cover;
+            font-family: 'Plus Jakarta Sans', sans-serif;
         }}
-
-        /* Ẩn Header/Footer mặc định */
+        
         .stDeployButton, footer, header, [data-testid="stHeader"] {{ display: none !important; }}
         
+        /* Căn chỉnh lại container chính để tạo hiệu ứng Card nổi */
         .block-container {{
-            padding-top: 2rem !important;
-            padding-bottom: 5rem !important;
-            max_width: 900px !important;
+            padding-top: 3rem !important;
+            padding-bottom: 3rem !important;
+            max_width: 800px !important;
         }}
 
-        /* --- CARD UI STYLE --- */
+        /* --- GLASSMORPHISM CARD (CONTAINER CHÍNH) --- */
+        /* Đây là lớp bọc toàn bộ nội dung */
+        div[data-testid="stVerticalBlock"] > div:has(div.stMarkdown) {{
+            /* Trick để không bọc nhầm */
+        }}
+        
+        /* --- UPLOADER STYLE --- */
         [data-testid="stFileUploader"] {{
-            background-color: {theme_cfg['card_bg']};
-            border: 1px dashed {theme_cfg['accent']};
-            border-radius: 12px;
-            padding: 20px;
-            transition: all 0.3s ease;
+            background: {theme['glass_bg']};
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px dashed {theme['accent']};
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: {theme['glass_shadow']};
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }}
+        [data-testid="stFileUploader"]:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(99, 102, 241, 0.2);
+            border-color: #818cf8;
         }}
         [data-testid="stFileUploader"] section > div {{
-            color: {theme_cfg['text_sub']} !important;
+            color: {theme['text_sub']} !important;
         }}
         [data-testid="stFileUploader"] small {{
-            color: {theme_cfg['text_sub']} !important;
+            display: none; /* Ẩn dòng limit mặc định cho gọn */
+        }}
+        /* Icon Cloud custom color */
+        [data-testid="stFileUploader"] svg {{
+            color: {theme['accent']};
+            width: 3rem; height: 3rem;
         }}
 
-        /* Style cho Nút bấm Primary */
+        /* --- BUTTONS --- */
         button[kind="primary"] {{
-            background: linear-gradient(135deg, {theme_cfg['accent']} 0%, {theme_cfg['accent_hover']} 100%);
-            border: none; border-radius: 8px; color: white !important;
-            padding: 0.75rem 1.5rem; font-weight: 600;
-            box-shadow: 0 4px 6px rgba(0,0,0, 0.2);
-            transition: all 0.2s;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            border: 0;
+            border-radius: 12px;
+            color: white !important;
+            padding: 0.8rem 1.5rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
+            transition: all 0.3s ease;
         }}
-        button[kind="primary"]:hover {{ transform: translateY(-1px); }}
-
-        /* Style cho Nút bấm Secondary (Settings) */
+        button[kind="primary"]:hover {{
+            box-shadow: 0 8px 25px rgba(79, 70, 229, 0.6);
+            transform: translateY(-2px);
+        }}
+        
+        /* Secondary Button (Refresh/Toggle) */
         button[kind="secondary"] {{
-            background-color: {theme_cfg['card_bg']};
-            color: {theme_cfg['text_main']};
-            border: 1px solid {theme_cfg['border']};
-            border-radius: 20px; /* Nút tròn */
-            font-size: 12px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            color: {theme['text_main']} !important;
+            border-radius: 10px;
+        }}
+        button[kind="secondary"]:hover {{
+            border-color: {theme['accent']};
+            color: {theme['accent']} !important;
         }}
 
-        /* Table Style */
-        [data-testid="stDataFrame"] {{
-            background-color: {theme_cfg['card_bg']};
-            border: 1px solid {theme_cfg['border']};
-            border-radius: 8px;
-        }}
-
-        /* Typography */
+        /* --- TYPOGRAPHY --- */
         h1 {{
-            font-weight: 800 !important; letter-spacing: -0.025em;
-            color: {theme_cfg['text_main']}; font-size: 2.5rem !important;
-            text-align: center; margin-bottom: 0.5rem;
+            font-weight: 800 !important;
+            color: {theme['text_main']};
+            text-align: center;
+            font-size: 3rem !important;
+            letter-spacing: -0.05em;
+            margin-bottom: 0.2rem;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }}
+        
+        /* Gradient Text cho chữ 'Pro' */
+        .gradient-text {{
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+
         p.subtitle {{
-            text-align: center; color: {theme_cfg['text_sub']};
-            font-size: 1.1rem; margin-bottom: 1.5rem;
+            text-align: center;
+            color: {theme['text_sub']};
+            font-size: 1.1rem;
+            font-weight: 400;
+            margin-bottom: 3rem;
         }}
+
+        /* --- DATAFRAME & TABLE --- */
+        [data-testid="stDataFrame"] {{
+            background: {theme['glass_bg']};
+            border: 1px solid {theme['glass_border']};
+            border-radius: 12px;
+            backdrop-filter: blur(4px);
+        }}
+        
+        /* --- FOOTER --- */
         .custom-footer {{
-            text-align: center; font-size: 0.85rem; color: {theme_cfg['text_sub']};
-            margin-top: 3rem; border-top: 1px solid {theme_cfg['border']}; padding-top: 1rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: {theme['text_sub']};
+            margin-top: 4rem;
+            opacity: 0.7;
         }}
     </style>
 """, unsafe_allow_html=True)
@@ -163,6 +223,7 @@ st.markdown(f"""
 # ==============================================================================
 # 4. LOGIC LÕI (CORE BUSINESS LOGIC - GIỮ NGUYÊN)
 # ==============================================================================
+# ... (Phần logic không đổi để đảm bảo tính năng chạy đúng) ...
 def _num(v: Any) -> float:
     if not v: return 0.0
     try:
@@ -327,117 +388,118 @@ def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
     return buf
 
 # ==============================================================================
-# 5. UI LAYOUT & CONTROL BAR
+# 5. UI LAYOUT & CONTROL BAR (FLOATING STYLE)
 # ==============================================================================
 
-# --- Thanh công cụ (Control Bar) ---
-c_spacer, c_lang, c_theme = st.columns([6, 1, 1])
+# --- Control Bar (Nằm gọn bên phải) ---
+col_logo, col_space, col_ctrl = st.columns([2, 4, 2])
 
-with c_lang:
-    # Logic đảo ngữ
-    current_lang = st.session_state["lang_code"]
-    label_lang = "🇻🇳 VN" if current_lang == "vi" else "🇬🇧 EN"
-    if st.button(label_lang, key="btn_lang", use_container_width=True):
-        st.session_state["lang_code"] = "en" if current_lang == "vi" else "vi"
-        st.rerun()
-
-with c_theme:
-    # Logic đảo màu
-    current_theme = st.session_state["theme_mode"]
-    label_theme = "🌙" if current_theme == "light" else "☀️"
-    if st.button(label_theme, key="btn_theme", use_container_width=True):
-        st.session_state["theme_mode"] = "dark" if current_theme == "light" else "light"
-        st.rerun()
-
-# --- Header Section ---
-st.markdown(f'<h1>{T["title"]} <span style="color:{theme_cfg["accent"]}">Pro</span></h1>', unsafe_allow_html=True)
-st.markdown(f'<p class="subtitle">{T["subtitle"]}</p>', unsafe_allow_html=True)
-
-# --- Main Container ---
-with st.container():
-    # Upload Area
-    uploaded_files = st.file_uploader(
-        label=T["upload_lbl"], 
-        type=ALLOWED_EXTENSIONS, 
-        accept_multiple_files=True, 
-        key="uploader"
-    )
-
-    if uploaded_files:
-        store = st.session_state["uploads"]
-        count_new = 0
-        for f in uploaded_files:
-            if len(store) >= MAX_FILES_ALLOWED: break
-            if f.name not in store:
-                if f.size <= MAX_FILE_SIZE_MB * 1024 * 1024:
-                    store[f.name] = {"data": f.read(), "size": f.size}
-                    count_new += 1
-        
-        if count_new > 0:
-            st.toast(T["toast_add"], icon="✨")
-            time.sleep(0.5)
+with col_ctrl:
+    c_sub1, c_sub2 = st.columns(2)
+    with c_sub1:
+        current_lang = st.session_state["lang_code"]
+        if st.button("VI / EN", key="btn_lang", use_container_width=True, type="secondary"):
+            st.session_state["lang_code"] = "en" if current_lang == "vi" else "vi"
+            st.rerun()
+    with c_sub2:
+        current_theme = st.session_state["theme_mode"]
+        label_theme = "Lights Off" if current_theme == "light" else "Lights On"
+        if st.button(label_theme, key="btn_theme", use_container_width=True, type="secondary"):
+            st.session_state["theme_mode"] = "dark" if current_theme == "light" else "light"
             st.rerun()
 
-# --- Dashboard ---
-if st.session_state["uploads"]:
-    st.markdown("---")
+# --- Hero Section ---
+st.markdown("---") # Spacer ẩn
+st.markdown(f'<h1>{T["title"]} <span class="gradient-text">Pro</span></h1>', unsafe_allow_html=True)
+st.markdown(f'<p class="subtitle">{T["subtitle"]}</p>', unsafe_allow_html=True)
+
+# --- Main Container (Glass Card) ---
+# Uploader nằm trực tiếp trên nền glass, không cần card bọc ngoài vì uploader đã style thành card rồi
+uploaded_files = st.file_uploader(
+    label=T["upload_lbl"], 
+    type=ALLOWED_EXTENSIONS, 
+    accept_multiple_files=True, 
+    key="uploader"
+)
+
+# Xử lý Logic cộng dồn file
+if uploaded_files:
+    store = st.session_state["uploads"]
+    count_new = 0
+    for f in uploaded_files:
+        if len(store) >= MAX_FILES_ALLOWED: break
+        if f.name not in store:
+            if f.size <= MAX_FILE_SIZE_MB * 1024 * 1024:
+                store[f.name] = {"data": f.read(), "size": f.size}
+                count_new += 1
     
-    c1, c2 = st.columns([2, 1])
+    if count_new > 0:
+        st.toast(T["toast_add"], icon="✨")
+        time.sleep(0.5)
+        st.rerun()
+
+# --- Dashboard View (Khi có data) ---
+if st.session_state["uploads"]:
+    st.markdown("###") # Spacer
+    
+    # Chia layout: Bên trái List file, Bên phải Actions
+    c1, c2 = st.columns([5, 3])
     
     with c1:
-        st.caption(f"📁 **{T['list_header']} ({len(st.session_state['uploads'])})**")
+        st.markdown(f"**{T['list_header']}** `({len(st.session_state['uploads'])})`")
         data_view = [{T["col_file"]: k, T["col_size"]: f"{v['size']/1024:.1f} KB"} 
                      for k,v in st.session_state["uploads"].items()]
-        st.dataframe(data_view, use_container_width=True, hide_index=True, height=200)
+        st.dataframe(data_view, use_container_width=True, hide_index=True, height=220)
     
     with c2:
-        with st.container():
-            st.write("") # Spacer
-            if st.button(T["btn_process"], type="primary", use_container_width=True):
-                with st.status(T["status_process"], expanded=True) as status:
-                    try:
-                        all_rows = []
-                        files = st.session_state["uploads"]
-                        total = len(files)
-                        bar = st.progress(0)
-                        
-                        for idx, (fname, fcontent) in enumerate(files.items()):
-                            inv_data = _parse_invoice_data(fcontent["data"], fname)
-                            rows = _rows_from_invoice(inv_data)
-                            if rows: all_rows.extend(rows)
-                            bar.progress((idx + 1) / total)
-                            del inv_data, rows
-                        
-                        if all_rows:
-                            excel_data = _df_to_xlsx_stream(all_rows)
-                            st.session_state["result_bytes"] = excel_data.getvalue()
-                            st.session_state["result_mime"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            status.update(label=T["status_done"], state="complete", expanded=False)
-                            st.balloons()
-                        else:
-                            status.update(label=T["status_empty"], state="error")
-                    except Exception as e:
-                        st.error(f"{T['status_fail']}: {str(e)}")
-                        status.update(label=T["status_fail"], state="error")
-            
-            if st.button(T["btn_clear"], use_container_width=True):
-                st.session_state["uploads"].clear()
-                st.session_state["result_bytes"] = None
-                st.rerun()
+        # Action Box
+        st.markdown("")
+        if st.button(T["btn_process"], type="primary", use_container_width=True):
+            with st.status(T["status_process"], expanded=True) as status:
+                try:
+                    all_rows = []
+                    files = st.session_state["uploads"]
+                    total = len(files)
+                    bar = st.progress(0)
+                    
+                    for idx, (fname, fcontent) in enumerate(files.items()):
+                        inv_data = _parse_invoice_data(fcontent["data"], fname)
+                        rows = _rows_from_invoice(inv_data)
+                        if rows: all_rows.extend(rows)
+                        bar.progress((idx + 1) / total)
+                        del inv_data, rows
+                    
+                    if all_rows:
+                        excel_data = _df_to_xlsx_stream(all_rows)
+                        st.session_state["result_bytes"] = excel_data.getvalue()
+                        st.session_state["result_mime"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        status.update(label=T["status_done"], state="complete", expanded=False)
+                        st.balloons()
+                    else:
+                        status.update(label=T["status_empty"], state="error")
+                except Exception as e:
+                    st.error(f"{T['status_fail']}: {str(e)}")
+                    status.update(label=T["status_fail"], state="error")
+        
+        # Nút xóa
+        if st.button(T["btn_clear"], use_container_width=True, type="secondary"):
+            st.session_state["uploads"].clear()
+            st.session_state["result_bytes"] = None
+            st.rerun()
 
-    # Download Section
+    # Download Button (Nổi bật hẳn ra)
     if st.session_state.get("result_bytes"):
-        st.markdown("### ✅ Result")
-        col_dl, _ = st.columns([1, 1])
-        with col_dl:
+        st.markdown("---")
+        c_center = st.columns([1, 2, 1])
+        with c_center[1]:
             st.download_button(
                 label=T["btn_dl"],
                 data=st.session_state["result_bytes"],
-                file_name=f"Invoice_Export_{int(time.time())}.xlsx",
+                file_name=f"Invoice_Result_{int(time.time())}.xlsx",
                 mime=st.session_state["result_mime"],
                 type="primary",
                 use_container_width=True
             )
 
 # Footer
-st.markdown('<div class="custom-footer">© 2025 Chuong Minh - Automation Solutions | Optimized For Performance .</div>', unsafe_allow_html=True)
+st.markdown('<div class="custom-footer">© 2025 Invoice Pipeline Pro | Crafted with ❤️</div>', unsafe_allow_html=True)
