@@ -4,9 +4,8 @@ import time
 import hashlib
 import zipfile
 import traceback
-import re
 from decimal import Decimal
-from typing import List, Tuple, Dict, Any
+from typing import List, Dict, Any, Tuple
 from xml.etree import ElementTree as ET
 
 import streamlit as st
@@ -14,7 +13,7 @@ import pandas as pd
 import xlsxwriter
 
 # ==============================================================================
-# 1. CẤU HÌNH & CSS (GIỮ NGUYÊN UI ĐẸP)
+# 1. CẤU HÌNH & CSS (TỐI ƯU GIAO DIỆN)
 # ==============================================================================
 st.set_page_config(
     page_title="Invoice Pipeline",
@@ -25,7 +24,7 @@ st.set_page_config(
 
 st.markdown("""
     <style>
-        /* Ẩn rác UI triệt để */
+        /* Ẩn UI rác */
         a[href*="streamlit.io/cloud"], div[class*="viewerBadge"], 
         #MainMenu, footer, header, [data-testid="stHeader"], .stDeployButton 
         { display: none !important; }
@@ -48,7 +47,7 @@ if st.session_state["theme"] == "dark":
     st.markdown("""<style>.stApp {background-color: #0E1117; color: #FAFAFA;} input {color: white !important;}</style>""", unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. CORE LOGIC (ELEMENT TREE - SIÊU NHANH & TÍNH TOÁN THÔNG MINH)
+# 2. CORE LOGIC (ELEMENT TREE NGUYÊN BẢN - KHÔNG REGEX)
 # ==============================================================================
 
 COLUMN_ORDER = [
@@ -68,91 +67,112 @@ def _num(v):
 
 def _txt(x): return (x or "").strip()
 
-def _find_text(node: ET.Element, path: str):
+# --- HÀM TÌM KIẾM THÔNG MINH (BỎ QUA NAMESPACE) ---
+def _get_tag_val(node: ET.Element, tag_names: List[str]) -> str:
+    """
+    Tìm giá trị của thẻ con dựa trên list tên (bỏ qua namespace).
+    Ví dụ: tag_names=['TSuat'] sẽ tìm thấy cả <ns:TSuat> và <TSuat>.
+    Chỉ tìm ở level con trực tiếp (Nhanh).
+    """
     if node is None: return ""
-    n = node.find(path)
-    return _txt(n.text) if n is not None and n.text is not None else ""
-
-# Hàm quét sâu (Recursive) để tìm thẻ bất chấp độ sâu - Optimized
-def _hunt_tag(node: ET.Element, keywords: List[str]) -> str:
-    # Tìm trực tiếp trước (Nhanh)
-    for k in keywords:
-        val = _find_text(node, k)
-        if val: return val
     
-    # Nếu không thấy mới quét sâu (Chậm hơn chút nhưng chính xác)
-    for child in node.iter():
-        tag = child.tag.lower()
-        # So khớp tương đối
-        for k in keywords:
-            if k.lower() in tag:
-                if child.text: return child.text.strip()
+    # Duyệt qua các thẻ con thực sự
+    for child in node:
+        # Lấy tên thẻ thuần (bỏ {http...})
+        raw_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        if raw_tag in tag_names:
+            return _txt(child.text)
     return ""
 
-def _parse_invoice(xml_bytes: bytes, filename: str) -> dict:
+def _parse_invoice_fast(xml_bytes: bytes, filename: str) -> dict:
     try:
-        # 1. Tẩy rửa Namespace (Regex cực nhanh)
-        xml_str = xml_bytes.decode("utf-8", errors="ignore")
-        xml_str = re.sub(r'\sxmlns[^"]+"[^"]+"', '', xml_str) 
-        xml_str = re.sub(r'(<\/?)[a-zA-Z0-9]+:', r'\1', xml_str) # Xóa prefix namespace
-        
-        root = ET.fromstring(xml_str)
-        
-        # Helper lấy text nhanh
-        def f(p): 
-            n = root.find(p)
-            return _txt(n.text) if n is not None and n.text is not None else ""
+        # Parse trực tiếp từ bytes (Siêu nhanh)
+        root = ET.fromstring(xml_bytes)
+    except Exception as e:
+        print(f"Lỗi đọc XML {filename}: {e}")
+        return {}
 
-        # 2. Lấy thông tin Header (Dùng .// để tìm bất chấp vị trí)
+    # Helper đệ quy tìm thẻ bất chấp độ sâu (Dùng cho Header)
+    def find_anywhere(names):
+        for elem in root.iter():
+            raw = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+            if raw in names:
+                return _txt(elem.text)
+        return ""
+
+    try:
+        # Lấy thông tin chung (Header)
         invoice = {
-            "KHMSHDon": f(".//TTChung/KHMSHDon"), 
-            "KHHDon":   f(".//TTChung/KHHDon"),
-            "SHDon":    f(".//TTChung/SHDon"),
-            "NLap":     f(".//TTChung/NLap"),
-            "DVTTe":    f(".//TTChung/DVTTe") or "VND",
-            "TGia":     f(".//TTChung/TGia") or "1",
+            "KHMSHDon": find_anywhere(["KHMSHDon", "MauSo"]), 
+            "KHHDon":   find_anywhere(["KHHDon", "KyHieu"]),
+            "SHDon":    find_anywhere(["SHDon", "SoHoaDon"]),
+            "NLap":     find_anywhere(["NLap", "NgayLap"]),
+            "DVTTe":    find_anywhere(["DVTTe"]) or "VND",
+            "TGia":     find_anywhere(["TGia"]) or "1",
         }
         
-        nban = root.find(".//NBan")
+        # Người bán
         invoice["NBan"] = {
-            "Ten":  _find_text(nban, "Ten") if nban is not None else "",
-            "MST":  _find_text(nban, "MST") if nban is not None else "",
-            "DChi": _find_text(nban, "DChi") if nban is not None else "",
+            "Ten":  find_anywhere(["Ten", "Name"]), # Cẩn thận trùng tên hàng
+            "MST":  find_anywhere(["MST", "MaSoThue"]),
+            "DChi": find_anywhere(["DChi", "DiaChi"]),
         }
-        
-        # 3. Lấy hàng hóa
-        items = []
-        all_items = root.findall(".//HHDVu")
-        for it in all_items:
-            # Tìm Thuế suất (Support PAS, Misa, Viettel...)
-            tsuat = _hunt_tag(it, ["TSuat", "ThueSuat", "TaxRate", "TS", "LTSuat"])
-            
-            # Tìm Tiền (Support VATAmount, TienThue...)
-            vat = _hunt_tag(it, ["VATAmount", "TienThue"])
-            amt = _hunt_tag(it, ["Amount", "TongTien", "ThanhTien"]) # Cẩn thận nhầm ThanhTien
+        # Fix lại tên người bán nếu lỡ lấy nhầm (thường header nằm trên nên iter sẽ thấy trước)
+        # Để chắc ăn, ta tìm node NBan cụ thể
+        for elem in root.iter():
+            raw = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+            if raw == "NBan":
+                invoice["NBan"]["Ten"] = _get_tag_val(elem, ["Ten"])
+                invoice["NBan"]["MST"] = _get_tag_val(elem, ["MST"])
+                invoice["NBan"]["DChi"] = _get_tag_val(elem, ["DChi"])
+                break
 
-            items.append({
-                "TChat":   _find_text(it, "TChat"),
-                "MHHDVu":  _find_text(it, "MHHDVu"),
-                "THHDVu":  _find_text(it, "THHDVu"),
-                "DVTinh":  _find_text(it, "DVTinh"),
-                "SLuong":  _find_text(it, "SLuong"),
-                "DGia":    _find_text(it, "DGia"),
-                "ThTien":  _find_text(it, "ThTien"),
-                "TSuat":   tsuat,
-                "VATAmount": vat,
-                "Amount":    amt,
-            })
+        # Lấy hàng hóa
+        items = []
+        # Tìm tất cả thẻ HHDVu
+        for elem in root.iter():
+            raw = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+            if raw == "HHDVu":
+                # Lấy các trường cơ bản
+                it = {
+                    "TChat":   _get_tag_val(elem, ["TChat"]),
+                    "MHHDVu":  _get_tag_val(elem, ["MHHDVu", "MaHang"]),
+                    "THHDVu":  _get_tag_val(elem, ["THHDVu", "TenHang"]),
+                    "DVTinh":  _get_tag_val(elem, ["DVTinh", "DonViTinh"]),
+                    "SLuong":  _get_tag_val(elem, ["SLuong", "SoLuong"]),
+                    "DGia":    _get_tag_val(elem, ["DGia", "DonGia"]),
+                    "ThTien":  _get_tag_val(elem, ["ThTien", "ThanhTien"]),
+                    "TSuat":   _get_tag_val(elem, ["TSuat", "ThueSuat", "TSuatGTGT", "ThueSuatGTGT", "LTSuat", "LTS"]),
+                    "VATAmount": "",
+                    "Amount": ""
+                }
+                
+                # Tìm VAT & Amount (Thường nằm trong TTKhac con của HHDVu)
+                # Hoặc nằm ngay trong HHDVu
+                vat_direct = _get_tag_val(elem, ["VATAmount", "TienThue"])
+                amt_direct = _get_tag_val(elem, ["Amount", "TongTien"])
+                
+                if vat_direct: it["VATAmount"] = vat_direct
+                if amt_direct: it["Amount"] = amt_direct
+                
+                # Nếu chưa thấy, tìm trong con (TTKhac)
+                for child in elem:
+                    raw_child = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                    if raw_child in ["TTKhac", "ThongTinKhac"]:
+                        if not it["VATAmount"]: it["VATAmount"] = _get_tag_val(child, ["VATAmount", "TienThue"])
+                        if not it["Amount"]: it["Amount"] = _get_tag_val(child, ["Amount", "TongTien"])
+
+                items.append(it)
+                
         invoice["Items"] = items
         return invoice
     except Exception as e:
-        print(f"Lỗi parse file {filename}: {e}")
+        print(f"Logic error {filename}: {e}")
         return {}
 
 def _rows_from_invoice(inv: dict) -> list[dict]:
     if not inv: return []
     try:
-        # Header
         ms = inv.get("KHMSHDon") or ""
         kh = inv.get("KHHDon") or ""
         so = inv.get("SHDon") or ""
@@ -169,50 +189,43 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
         rows = []
 
         for it in items:
-            # Lấy số liệu thô
             sl = _num(it.get("SLuong"))
             dg = _num(it.get("DGia"))
             tht = _num(it.get("ThTien"))
             vat = _num(it.get("VATAmount"))
             total = _num(it.get("Amount"))
             
-            # Xử lý thuế suất text
-            ts_raw = _txt(it.get("TSuat"))
+            # Xử lý thuế suất
+            ts_raw = it.get("TSuat")
             ts_val = 0.0
-            
-            # Parse % thuế (Chấp nhận cả 8, 8%, 0.08)
             if ts_raw:
-                clean_ts = ts_raw.replace("%","").replace(",",".")
                 try:
-                    if clean_ts[0].isdigit():
-                        val = float(clean_ts)
+                    clean = ts_raw.replace("%","").replace(",",".")
+                    if clean[0].isdigit():
+                        val = float(clean)
                         ts_val = val / 100 if val > 1 else val
                 except: pass
 
-            # --- LOGIC TÍNH TOÁN THÔNG MINH ---
+            # --- TÍNH TOÁN & SUY LUẬN ---
             
-            # 1. Nếu thiếu Tiền Thuế -> Tự tính (Chỉ khi biết thuế suất)
+            # 1. Tự tính VAT nếu thiếu (nhưng có thuế suất)
             if vat == 0 and tht != 0 and ts_val > 0:
                 vat = tht * ts_val
                 if str(cur).upper() == "VND": vat = round(vat)
             
-            # 2. Nếu thiếu % Thuế Suất (nhưng có tiền) -> Suy luận ngược
-            final_ts_display = ts_raw
-            if not final_ts_display and vat > 0 and tht > 0:
+            # 2. Suy luận ngược % nếu thiếu (nhưng có tiền thuế)
+            final_ts = ts_raw
+            if not final_ts and vat > 0 and tht > 0:
                 try:
-                    calc = (vat / tht) * 100
-                    # Làm tròn vào các mức thuế phổ biến
-                    if abs(calc - 5) < 0.5: final_ts_display = "5%"
-                    elif abs(calc - 8) < 0.5: final_ts_display = "8%"
-                    elif abs(calc - 10) < 0.5: final_ts_display = "10%"
-                    elif abs(calc - 0) < 0.1: final_ts_display = "0%"
-                    else: final_ts_display = f"{round(calc, 2)}%"
+                    r = (vat/tht)*100
+                    if abs(r-5)<0.5: final_ts="5%"
+                    elif abs(r-8)<0.5: final_ts="8%"
+                    elif abs(r-10)<0.5: final_ts="10%"
+                    else: final_ts=f"{round(r)}%"
                 except: pass
 
-            # 3. Nếu thiếu Tổng -> Tự cộng
             if total == 0: total = tht + vat
 
-            # Build row
             r = {k: "" for k in COLUMN_ORDER}
             r.update({
                 "Mẫu số": ms, "KH hóa đơn": kh, "Số hóa đơn": so, "Ngày hóa đơn": ngay,
@@ -222,12 +235,10 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
                 "Tên hàng": it.get("THHDVu") or "",
                 "Đơn vị tính": it.get("DVTinh") or "",
                 "Số lượng": sl, "Đơn giá": dg, "Tiền hàng": tht,
-                "Thuế suất": final_ts_display, # Dùng giá trị đã suy luận
-                "Tiền thuế": vat, "Cộng tiền": total,
-                "Cờ (Tchat)": _num(it.get("TChat")) or ""
+                "Thuế suất": final_ts, "Tiền thuế": vat, "Cộng tiền": total,
+                "Cờ (Tchat)": it.get("TChat") or ""
             })
             rows.append(r)
-            
         return rows
     except Exception: return []
 
@@ -243,51 +254,44 @@ def _df_to_xlsx_stream(rows: list[dict]) -> io.BytesIO:
     return buf
 
 # ==============================================================================
-# 3. FRONTEND (HANDLER)
+# 3. FRONTEND (TỐI ƯU UPLOAD)
 # ==============================================================================
 
-if "uploads" not in st.session_state: st.session_state.update({"uploads":{}, "sha_index":{}, "last_activity":time.time(), "busy":False, "do_convert":False, "result_bytes":None, "lang_code":"vi", "theme":"light"})
+if "uploads" not in st.session_state: st.session_state.update({"uploads":{}, "busy":False, "lang_code":"vi", "theme":"light"})
 
 def _add_uploads(files, T):
     store = st.session_state["uploads"]
     if len(store) + len(files) > MAX_FILES_ALLOWED:
         st.error(T["error_too_many"].format(max=MAX_FILES_ALLOWED)); return
+    
     for f in files:
         try:
             name = f.name
-            data = f.read()
-            if len(data) > MAX_FILE_SIZE_MB*1024*1024: st.toast(f"File {name} quá lớn", icon="⚠️"); continue
+            # Đọc file một lần duy nhất
+            data = f.read() 
             store[name] = {"data": data, "size": len(data), "uploaded_at": time.time()}
         except: continue
-    st.session_state["last_activity"] = time.time()
 
-# --- UI LANGUAGE ---
+# --- UI ---
 LANG = {
     "vi": {
         "page_title": "Xử lý Hóa đơn", "settings": "Cài đặt", "theme_label": "Giao diện",
-        "mode_info": "Chế độ: **All-in-One** (Bảo mật & Riêng tư)",
-        "check_sys": "Kiểm tra hệ thống", "sys_ok": "✅ Hệ thống hoạt động tốt",
+        "mode_info": "Chế độ: **All-in-One** (Bảo mật & Riêng tư)", "check_sys": "Kiểm tra hệ thống", "sys_ok": "✅ Ổn định",
         "upload_label": "Thả file XML vào đây", "added": "Đã thêm", "clear_all": "Xoá tất cả",
-        "col_name": "Tên file", "col_size": "Kích thước", "col_ttl": "Còn lại",
-        "merge_label": "Gộp thành 1 file Excel duy nhất", "convert_btn": "🚀 Chuyển đổi Ngay",
-        "success_msg": "✅ Xử lý thành công!", "error_msg": "Lỗi xử lý.",
-        "download_btn": "⬇️ Tải về kết quả", "copyright": "© 2025 Chuong Minh | All Rights Reserved",
-        "error_too_many": "Quá tải số lượng file.", "empty_list": "Chưa có file nào."
+        "col_name": "Tên file", "col_size": "Kích thước", "merge_label": "Gộp 1 file", "convert_btn": "🚀 Chuyển đổi",
+        "success_msg": "✅ Xong!", "error_msg": "Lỗi xử lý.", "download_btn": "⬇️ Tải về",
+        "copyright": "© 2025 Chuong Minh | All Rights Reserved", "error_too_many": "Quá tải.", "empty_list": "Chưa có file."
     },
     "en": {
         "page_title": "Invoice Pipeline", "settings": "Settings", "theme_label": "Theme",
-        "mode_info": "Mode: **All-in-One** (Secure & Private)",
-        "check_sys": "System Check", "sys_ok": "✅ System Operational",
-        "upload_label": "Drop XML files here", "added": "Added", "clear_all": "Clear All",
-        "col_name": "File Name", "col_size": "Size", "col_ttl": "Time Left",
-        "merge_label": "Merge into single Excel file", "convert_btn": "🚀 Convert Now",
-        "success_msg": "✅ Processing Complete!", "error_msg": "Processing Error.",
-        "download_btn": "⬇️ Download Result", "copyright": "© 2025 Chuong Minh | All Rights Reserved",
-        "error_too_many": "Too many files.", "empty_list": "No files uploaded yet."
+        "mode_info": "Mode: **All-in-One** (Secure & Private)", "check_sys": "Check System", "sys_ok": "✅ Stable",
+        "upload_label": "Drop XML files", "added": "Added", "clear_all": "Clear All",
+        "col_name": "Filename", "col_size": "Size", "merge_label": "Merge to one", "convert_btn": "🚀 Convert",
+        "success_msg": "✅ Done!", "error_msg": "Error.", "download_btn": "⬇️ Download",
+        "copyright": "© 2025 Chuong Minh | All Rights Reserved", "error_too_many": "Too many files.", "empty_list": "No files."
     }
 }
 
-# --- RENDER ---
 T = LANG[st.session_state["lang_code"]]
 col_head, col_set = st.columns([6, 1], gap="small")
 with col_head: st.title(f"{T['page_title']}")
@@ -307,23 +311,27 @@ with st.container(border=True):
 
 st.divider()
 uploaded_files = st.file_uploader(T['upload_label'], type=["xml"], accept_multiple_files=True)
-if uploaded_files: _add_uploads(uploaded_files, T); st.rerun()
+# Logic upload nhanh gọn, không seek tới lui
+if uploaded_files: 
+    _add_uploads(uploaded_files, T)
+    st.rerun() # Refresh ngay để enable nút convert
 
 if st.session_state["uploads"]:
     c1, c2 = st.columns([3,1])
     rows = [{T['col_name']:k, T['col_size']:v["size"]} for k,v in st.session_state["uploads"].items()]
     c1.dataframe(rows, use_container_width=True, hide_index=True)
     if c2.button(f"🧽 {T['clear_all']}", use_container_width=True): 
-        st.session_state["uploads"].clear(); st.session_state["result_bytes"] = None; st.rerun()
+        st.session_state["uploads"].clear(); st.session_state.pop("result_bytes", None); st.rerun()
 else: st.caption(f"_{T['empty_list']}_")
 
 merge = st.checkbox(T['merge_label'], value=True)
+# Nút convert chỉ hiện khi có file
 if st.button(T['convert_btn'], type="primary", disabled=not st.session_state["uploads"]):
     try:
         files_map = {k: v["data"] for k,v in st.session_state["uploads"].items()}
         per_file = []
         for name, data in files_map.items():
-            inv = _parse_invoice(data, name)
+            inv = _parse_invoice_fast(data, name) # Dùng hàm parse mới siêu nhanh
             rows = _rows_from_invoice(inv)
             if rows: per_file.append(rows)
         
@@ -333,10 +341,12 @@ if st.button(T['convert_btn'], type="primary", disabled=not st.session_state["up
             st.session_state["result_bytes"] = xlsx.getvalue()
             st.session_state["result_mime"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             st.success(T['success_msg'])
-        else: st.warning("No valid data.")
-    except Exception: st.error(T['error_msg'])
+        else: st.warning("Không tìm thấy dữ liệu hợp lệ trong file XML.")
+    except Exception as e: 
+        print(f"Error: {e}")
+        st.error(T['error_msg'])
 
-if st.session_state["result_bytes"]:
+if st.session_state.get("result_bytes"):
     st.download_button(T['download_btn'], st.session_state["result_bytes"], "Data.xlsx", st.session_state["result_mime"], type="primary")
 
 st.markdown(f'<div class="custom-footer">{T["copyright"]}</div>', unsafe_allow_html=True)
