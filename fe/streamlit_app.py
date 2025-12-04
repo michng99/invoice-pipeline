@@ -319,7 +319,8 @@ T = LANG[st.session_state["lang_code"]]
 col_head, col_set = st.columns([6, 1], gap="small")
 with col_head: st.title(f"{T['page_title']}")
 with col_set:
-    with st.popover(f"⚙️ {T['settings']}", use_container_width=True):
+    # Fix warning use_container_width
+    with st.popover(f"⚙️ {T['settings']}"):
         # Language Switcher
         is_vn = st.session_state["lang_code"] == "vi"
         new_lang_val = st.toggle("Tiếng Việt / English", value=is_vn)
@@ -366,9 +367,9 @@ if uploaded_files:
             except Exception: pass
     
     # Nếu có file mới, rerun nhẹ để cập nhật danh sách hiển thị bên dưới
-    # Lưu ý: Không cần rerun nếu file đã có rồi để tránh flicker
     if new_files_count > 0:
-        st.toast(f"Đã thêm {new_files_count} file mới!", icon="inbox")
+        # ĐÃ SỬA LỖI Ở DÒNG DƯỚI NÀY (icon="📥")
+        st.toast(f"Đã thêm {new_files_count} file mới!", icon="📥")
 
 # --- FILE LIST VIEW ---
 if st.session_state["uploads"]:
