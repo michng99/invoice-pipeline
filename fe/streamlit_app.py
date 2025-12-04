@@ -4,6 +4,7 @@ import time
 import hashlib
 import zipfile
 import traceback
+import re
 from decimal import Decimal
 from typing import List, Tuple, Dict, Any
 from xml.etree import ElementTree as ET
@@ -61,22 +62,20 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Patch CSS riêng cho Dark Mode
 if "theme" not in st.session_state: st.session_state["theme"] = "light"
 if st.session_state["theme"] == "dark":
     st.markdown("""
         <style>
         .stApp {background-color: #0E1117; color: #FAFAFA;}
         div[data-baseweb="select"] > div, div[data-baseweb="input"] {
-            background-color: #262730 !important; 
-            color: white !important;
+            background-color: #262730 !important; color: white !important;
         }
         input {color: white !important;}
         </style>
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. CORE LOGIC (ĐÃ BỔ SUNG SUY LUẬN THUẾ SUẤT)
+# 2. CORE LOGIC (NAMESPACE CLEANING & TAG HUNTING)
 # ==============================================================================
 
 COLUMN_ORDER = [
@@ -91,8 +90,12 @@ MAX_FILE_SIZE_MB = 10
 MAX_TOTAL_SIZE_MB = 50          
 
 def _num(v):
-    try: return float(Decimal(str(v)))
-    except Exception: return 0.0
+    if not v: return 0.0
+    s = str(v).replace(",", "").strip()
+    try:
+        return float(Decimal(s))
+    except Exception:
+        return 0.0
 
 def _txt(x): return (x or "").strip()
 
@@ -101,14 +104,29 @@ def _find_text(node: ET.Element, path: str):
     n = node.find(path)
     return _txt(n.text) if n is not None and n.text is not None else ""
 
+# Helper tìm tag linh hoạt (thử nhiều đường dẫn)
+def _find_flexible(node: ET.Element, paths: List[str]) -> str:
+    if node is None: return ""
+    for p in paths:
+        found = _find_text(node, p)
+        if found: return found
+    return ""
+
 def _parse_invoice(xml_bytes: bytes, filename: str = "unknown") -> dict:
     try:
-        root = ET.fromstring(xml_bytes)
-    except ET.ParseError:
-        print(f"⚠️ [WARNING] File {filename} bị lỗi cấu trúc XML.")
-        return {}
-    except Exception as e:
-        print(f"❌ [ERROR] Lỗi lạ khi parse file {filename}: {e}")
+        # --- BƯỚC QUAN TRỌNG: TẨY RỬA NAMESPACE ---
+        # Chuyển bytes sang string
+        xml_str = xml_bytes.decode("utf-8", errors="ignore")
+        
+        # Xóa các khai báo xmlns="..." để tránh lỗi tìm tag
+        # Regex này tìm xmlns="..." và thay bằng rỗng
+        xml_str = re.sub(r' xmlns="[^"]+"', '', xml_str, count=1)
+        xml_str = re.sub(r' xmlns:xsi="[^"]+"', '', xml_str, count=1)
+        xml_str = re.sub(r' xsi:schemaLocation="[^"]+"', '', xml_str, count=1)
+
+        root = ET.fromstring(xml_str)
+    except Exception:
+        # Nếu lỗi decode hoặc parse, trả về dict rỗng
         return {}
 
     def f(p): 
@@ -116,40 +134,63 @@ def _parse_invoice(xml_bytes: bytes, filename: str = "unknown") -> dict:
         return _txt(n.text) if n is not None and n.text is not None else ""
 
     try:
+        # Cấu trúc chuẩn hóa đơn thuế (Circular 78)
         invoice = {
-            "KHMSHDon": f("./DLHDon/TTChung/KHMSHDon"),
-            "KHHDon":   f("./DLHDon/TTChung/KHHDon"),
-            "SHDon":    f("./DLHDon/TTChung/SHDon"),
-            "NLap":     f("./DLHDon/TTChung/NLap"),
-            "DVTTe":    f("./DLHDon/TTChung/DVTTe") or "VND",
-            "TGia":     f("./DLHDon/TTChung/TGia") or "1",
+            "KHMSHDon": f(".//TTChung/KHMSHDon"), # Dùng .// để tìm sâu bất chấp level
+            "KHHDon":   f(".//TTChung/KHHDon"),
+            "SHDon":    f(".//TTChung/SHDon"),
+            "NLap":     f(".//TTChung/NLap"),
+            "DVTTe":    f(".//TTChung/DVTTe") or "VND",
+            "TGia":     f(".//TTChung/TGia") or "1",
         }
-        nban = root.find("./DLHDon/NDHDon/NBan")
+        
+        # Tìm thông tin người bán (Có thể nằm ở NDHDon/NBan hoặc trực tiếp)
+        nban = root.find(".//NBan")
         invoice["NBan"] = {
             "Ten":  _find_text(nban, "Ten") if nban is not None else "",
             "MST":  _find_text(nban, "MST") if nban is not None else "",
             "DChi": _find_text(nban, "DChi") if nban is not None else "",
         }
-        items_parent = root.find("./DLHDon/NDHDon/DSHHDVu")
+        
         items = []
-        if items_parent is not None:
-            for it in items_parent.findall("./HHDVu"):
-                items.append({
-                    "TChat":   _find_text(it, "TChat"),
-                    "MHHDVu":  _find_text(it, "MHHDVu"),
-                    "THHDVu":  _find_text(it, "THHDVu"),
-                    "DVTinh":  _find_text(it, "DVTinh"),
-                    "SLuong":  _find_text(it, "SLuong") or "0",
-                    "DGia":    _find_text(it, "DGia") or "0",
-                    "ThTien":  _find_text(it, "ThTien") or "0",
-                    "TSuat":   _find_text(it, "TSuat"),
-                    "VATAmount": _find_text(it, "./TTKhac/VATAmount") or "0",
-                    "Amount":    _find_text(it, "./TTKhac/Amount") or "0",
-                })
+        # Tìm danh sách hàng hóa (DSHHDVu/HHDVu)
+        # Dùng findall với .// để tìm HHDVu ở bất kỳ độ sâu nào
+        all_items = root.findall(".//HHDVu")
+        
+        for it in all_items:
+            # --- LIST TAG THUẾ SUẤT ĐẦY ĐỦ NHẤT ---
+            tsuat = _find_flexible(it, [
+                "TSuat", "ThueSuat", "TSuatGTGT", "ThueSuatGTGT", 
+                "TaxRate", "TS"
+            ])
+            
+            # Tìm VAT & Amount (Ưu tiên tìm trong TTKhac trước, rồi tìm ở ngoài)
+            vat_amt = _find_flexible(it, ["./TTKhac/VATAmount", "VATAmount", "TienThue", "TienThueGTGT"])
+            amt     = _find_flexible(it, ["./TTKhac/Amount", "Amount", "TongTien", "ThanhTien"])
+            
+            # Nếu tìm Amount thất bại, thử lấy ThTien + VAT
+            if not amt:
+                tht_val = _num(_find_text(it, "ThTien"))
+                vat_val = _num(vat_amt)
+                if tht_val > 0:
+                    amt = str(tht_val + vat_val)
+
+            items.append({
+                "TChat":   _find_text(it, "TChat"),
+                "MHHDVu":  _find_text(it, "MHHDVu"),
+                "THHDVu":  _find_text(it, "THHDVu"),
+                "DVTinh":  _find_text(it, "DVTinh"),
+                "SLuong":  _find_text(it, "SLuong") or "0",
+                "DGia":    _find_text(it, "DGia") or "0",
+                "ThTien":  _find_text(it, "ThTien") or "0",
+                "TSuat":   tsuat,
+                "VATAmount": vat_amt or "0",
+                "Amount":    amt or "0",
+            })
+            
         invoice["Items"] = items
         return invoice
-    except Exception as e:
-        print(f"❌ [ERROR] Lỗi khi map dữ liệu file {filename}: {traceback.format_exc()}")
+    except Exception:
         return {}
 
 def _rows_from_invoice(inv: dict) -> list[dict]:
@@ -170,47 +211,52 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
         rows = []
 
         def create_row(it, override_vals=None):
-            # 1. Lấy dữ liệu thô
-            sl = _num(it.get("SLuong") or 0)
-            dg = _num(it.get("DGia") or 0)
-            tht = _num(it.get("ThTien") or 0)
-            vat = _num(it.get("VATAmount") or 0)
-            total = _num(it.get("Amount") or 0)
+            sl = _num(it.get("SLuong"))
+            dg = _num(it.get("DGia"))
+            tht = _num(it.get("ThTien"))
+            vat = _num(it.get("VATAmount"))
+            total = _num(it.get("Amount"))
             
-            # 2. Xử lý thuế suất
+            # Xử lý thuế suất text
             ts_raw = _txt(it.get("TSuat"))
+            # Chuẩn hóa chuỗi thuế suất (bỏ %, đổi phẩy thành chấm)
             ts_str = ts_raw.replace("%","").replace(",",".")
             ts_val = 0.0 
 
+            # Cố gắng parse số %
             if ts_str:
                 try:
-                    val = float(ts_str)
-                    if val > 1: val = val / 100 
-                    ts_val = val
+                    # Xử lý trường hợp "KCT", "KKKNT" -> 0
+                    if not ts_str[0].isdigit():
+                        ts_val = 0.0
+                    else:
+                        val = float(ts_str)
+                        # Nếu ghi 8 -> 0.08, nếu ghi 0.08 -> 0.08
+                        if val > 1: val = val / 100 
+                        ts_val = val
                 except:
                     ts_val = 0.0
             
-            # 3. LOGIC TÍNH TOÁN & SUY LUẬN (UPDATE)
-            
-            # Case A: XML thiếu Tiền thuế -> Tự tính (Nếu có thuế suất)
+            # LOGIC: Tự tính tiền thuế nếu thiếu (Chỉ khi có thuế suất > 0)
             if vat == 0 and tht != 0 and ts_val > 0:
                 vat = tht * ts_val
                 if cur.upper() == "VND": vat = round(vat)
             
-            # Case B: XML có Tiền thuế nhưng thiếu % Thuế suất -> Suy luận ngược
+            # LOGIC: Suy luận ngược % (Nếu thiếu % nhưng có tiền thuế)
+            # Điều kiện: Thuế suất gốc rỗng VÀ có tiền > 0
             final_ts_display = ts_raw
             if not final_ts_display and vat > 0 and tht > 0:
                 try:
                     calc_rate = (vat / tht) * 100
-                    # Làm tròn và gán các mức thuế phổ biến
+                    # Làm tròn vào các mức phổ biến
                     if abs(calc_rate - 8) < 0.5: final_ts_display = "8%"
                     elif abs(calc_rate - 10) < 0.5: final_ts_display = "10%"
                     elif abs(calc_rate - 5) < 0.5: final_ts_display = "5%"
-                    else: final_ts_display = f"{round(calc_rate, 2)}%"
+                    else: final_ts_display = f"{round(calc_rate)}%"
                 except:
-                    pass # Lỗi chia 0 hoặc gì đó thì bỏ qua
+                    pass 
 
-            # Tính tổng
+            # Tính tổng cuối cùng
             if total == 0:
                 total = tht + vat
 
@@ -225,7 +271,7 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
                 "Số lượng": sl,
                 "Đơn giá":  dg,
                 "Tiền hàng": tht,
-                "Thuế suất": final_ts_display, # Dùng giá trị đã suy luận
+                "Thuế suất": final_ts_display,
                 "Tiền thuế": vat,
                 "Cộng tiền": total,
                 "Cờ (Tchat)": _num(it.get("TChat")) if (it.get("TChat") or "").isdigit() else "",
@@ -241,7 +287,6 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
             rows.append(create_row(it))
         return rows
     except Exception:
-        print(f"❌ [ERROR] Lỗi khi tạo dòng Excel: {traceback.format_exc()}")
         return []
 
 def _df_to_xlsx_stream(rows: list[dict], sheet_name="Data") -> io.BytesIO:
@@ -263,24 +308,15 @@ def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tu
         try:
             inv = _parse_invoice(data, filename=name)
             rows = _rows_from_invoice(inv)
-            
-            if not rows:
-                print(f"ℹ️ [INFO] File {name} không có dữ liệu.")
-                continue
-                
+            if not rows: continue
             per_file_rows.append(rows)
             
             if not merge:
                 xlsx = _df_to_xlsx_stream(rows)
                 named_streams.append((f"{name.rsplit('.',1)[0]}.xlsx", xlsx.getvalue()))
-                
-        except Exception:
-            print(f"❌ [CRITICAL] Lỗi xử lý file {name}:")
-            print(traceback.format_exc())
-            continue 
+        except Exception: continue 
 
-    if not per_file_rows: 
-        return None, None
+    if not per_file_rows: return None, None
 
     try:
         if merge or len(named_streams) == 1:
@@ -294,16 +330,12 @@ def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tu
                 for name, payload in named_streams: z.writestr(name, payload)
             zbuf.seek(0)
             return zbuf.getvalue(), "application/zip"
-    except Exception:
-        print(f"❌ [CRITICAL] Lỗi đóng gói:")
-        print(traceback.format_exc())
-        return None, None
+    except Exception: return None, None
 
 # ==============================================================================
 # 3. FRONTEND
 # ==============================================================================
 
-# Init State
 if "uploads" not in st.session_state: st.session_state["uploads"] = {}
 if "sha_index" not in st.session_state: st.session_state["sha_index"] = {}
 if "last_activity" not in st.session_state: st.session_state["last_activity"] = time.time()
@@ -317,87 +349,56 @@ if "theme" not in st.session_state: st.session_state["theme"] = "light"
 TTL_SECONDS = 3 * 60 
 
 def _touch(): st.session_state["last_activity"] = time.time()
-
 def _fmt_left(uploaded_at: float) -> str:
     left = max(0, (uploaded_at + TTL_SECONDS) - time.time())
     m, s = int(left // 60), int(left % 60)
     return f"{m:02d}:{s:02d}"
-
 def _clear_all():
     st.session_state["uploads"].clear()
     st.session_state["sha_index"].clear()
     st.session_state["result_bytes"] = None
     st.session_state["do_convert"] = False
     _touch()
-
 def _cleanup_ttl():
     last = st.session_state.get("last_activity") or time.time()
     if time.time() - last > TTL_SECONDS: _clear_all()
-
 def _sha256(b: bytes) -> str:
     h = hashlib.sha256()
     h.update(b)
     return h.hexdigest()
-
 def _add_uploads(files, text_dict):
     added, rep_n, rep_c = [], [], []
     store = st.session_state["uploads"]
     sha_idx = st.session_state["sha_index"]
-    
     current_count = len(store)
     new_count = len(files) if files else 0
     if current_count + new_count > MAX_FILES_ALLOWED:
         st.error(text_dict["error_too_many"].format(max=MAX_FILES_ALLOWED))
         return [], [], []
-        
     current_total_size = sum(item["size"] for item in store.values())
-    
     for f in files or []:
         try:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(0)
+            f.seek(0, os.SEEK_END); size = f.tell(); f.seek(0)
             name = (f.name or "unknown.xml").strip()
-            
             if size > MAX_FILE_SIZE_MB * 1024 * 1024:
-                st.toast(text_dict["error_file_big"].format(name=name, size=MAX_FILE_SIZE_MB), icon="⚠️")
-                continue
+                st.toast(text_dict["error_file_big"].format(name=name, size=MAX_FILE_SIZE_MB), icon="⚠️"); continue
             if current_total_size + size > MAX_TOTAL_SIZE_MB * 1024 * 1024:
-                st.toast(text_dict["error_total_big"].format(name=name, size=MAX_TOTAL_SIZE_MB), icon="🛑")
-                break 
-                
-            data = f.read()
-            sha = _sha256(data)
-            
+                st.toast(text_dict["error_total_big"].format(name=name, size=MAX_TOTAL_SIZE_MB), icon="🛑"); break 
+            data = f.read(); sha = _sha256(data)
             if sha in sha_idx and sha_idx[sha] in store:
                 old_name = sha_idx[sha]
                 store[old_name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-                if old_name != name:
-                    store[name] = store.pop(old_name)
-                    sha_idx[sha] = name
-                rep_c.append(name)
-                current_total_size += size
-                continue
-                
+                if old_name != name: store[name] = store.pop(old_name); sha_idx[sha] = name
+                rep_c.append(name); current_total_size += size; continue
             if name in store:
-                old_size = store[name]["size"]
-                current_total_size = current_total_size - old_size + size
-                rep_n.append(name)
-                store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-                sha_idx[sha] = name
-                continue
-                
+                old_size = store[name]["size"]; current_total_size = current_total_size - old_size + size
+                rep_n.append(name); store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
+                sha_idx[sha] = name; continue
             store[name] = {"data": data, "size": size, "uploaded_at": time.time(), "sha": sha}
-            sha_idx[sha] = name
-            added.append(name)
-            current_total_size += size
-        except Exception:
-            continue
+            sha_idx[sha] = name; added.append(name); current_total_size += size
+        except Exception: continue
+    _touch(); return added, rep_n, rep_c
 
-    _touch()
-    return added, rep_n, rep_c
-
-# --- UI LANGUAGE DICT ---
 LANG = {
     "en": {
         "page_title": "Invoice Pipeline",
@@ -421,7 +422,7 @@ LANG = {
         "success_msg": "✅ Processing Complete!",
         "error_msg": "Processing Error: ",
         "download_btn": "⬇️ Download Result",
-        "copyright": "© 2025 Chuong Minh - Automation Solutions | All Rights Reserved",
+        "copyright": "© 2025 Chuong Minh | All Rights Reserved",
         "error_too_many": "⚠️ Overload: Max {max} files allowed.",
         "error_file_big": "❌ Skipped '{name}': Too large (> {size}MB)",
         "error_total_big": "❌ Stop '{name}': Total size exceeds {size}MB",
@@ -449,7 +450,7 @@ LANG = {
         "success_msg": "✅ Xử lý thành công!",
         "error_msg": "Lỗi xử lý. Vui lòng thử lại hoặc liên hệ admin.",
         "download_btn": "⬇️ Tải về kết quả",
-        "copyright": "© 2025 Bản quyền thuộc về Chuong Minh - Giải pháp tự động hóa.",
+        "copyright": "© 2025 Chuong Minh | All Rights Reserved",
         "error_too_many": "⚠️ Quá tải: Chỉ chấp nhận tối đa {max} file.",
         "error_file_big": "❌ Bỏ qua '{name}': Quá lớn (> {size}MB)",
         "error_total_big": "❌ Dừng thêm '{name}': Tổng dung lượng vượt quá {size}MB",
@@ -457,43 +458,32 @@ LANG = {
     }
 }
 
-# --- RENDER UI ---
 _cleanup_ttl()
 T = LANG[st.session_state["lang_code"]]
 
 col_head, col_set = st.columns([6, 1], gap="small")
-with col_head:
-    st.title(f"{T['page_title']}")
+with col_head: st.title(f"{T['page_title']}")
 with col_set:
     with st.popover(f"⚙️ {T['settings']}", use_container_width=True):
         is_vn = st.session_state["lang_code"] == "vi"
         toggle_lang = st.toggle("Tiếng Việt / English", value=is_vn)
         new_lang = "vi" if toggle_lang else "en"
-        
         st.write(f"**{T['theme_label']}**")
-        theme_opt = st.radio("Theme", [T["light"], T["dark"]], 
-                             index=0 if st.session_state["theme"]=="light" else 1, 
-                             label_visibility="collapsed", horizontal=True)
+        theme_opt = st.radio("Theme", [T["light"], T["dark"]], index=0 if st.session_state["theme"]=="light" else 1, label_visibility="collapsed", horizontal=True)
         new_theme = "light" if theme_opt == T["light"] else "dark"
-        
         if new_lang != st.session_state["lang_code"] or new_theme != st.session_state["theme"]:
-            st.session_state["lang_code"] = new_lang
-            st.session_state["theme"] = new_theme
-            st.rerun()
+            st.session_state["lang_code"] = new_lang; st.session_state["theme"] = new_theme; st.rerun()
 
 with st.container(border=True):
     col1, col2 = st.columns([3, 1])
     with col1: st.info(f"ℹ️ {T['mode_info']}")
     with col2:
-        if st.button(f"🔗 {T['check_sys']}", use_container_width=True):
-            st.success(T['sys_ok'])
+        if st.button(f"🔗 {T['check_sys']}", use_container_width=True): st.success(T['sys_ok'])
 
 st.divider()
-
 uploaded_files = st.file_uploader(T['upload_label'], type=["xml"], accept_multiple_files=True)
 if uploaded_files:
-    added, rep_n, rep_c = _add_uploads(uploaded_files, T)
-    msg = []
+    added, rep_n, rep_c = _add_uploads(uploaded_files, T); msg = []
     if added: msg.append(f"✅ {T['added']} {len(added)}")
     if rep_n: msg.append(f"♻️ {T['replaced_name']} {len(rep_n)}")
     if rep_c: msg.append(f"♻️ {T['replaced_content']} {len(rep_c)}")
@@ -502,60 +492,38 @@ if uploaded_files:
 if st.session_state["uploads"]:
     colA, colB = st.columns([3,1])
     with colA:
-        rows = [{T['col_name']: k, T['col_size']: v["size"], T['col_ttl']: _fmt_left(v["uploaded_at"])} 
-                for k, v in st.session_state["uploads"].items()]
+        rows = [{T['col_name']: k, T['col_size']: v["size"], T['col_ttl']: _fmt_left(v["uploaded_at"])} for k, v in st.session_state["uploads"].items()]
         st.dataframe(rows, hide_index=True, use_container_width=True)
     with colB:
-        if st.button(f"🧽 {T['clear_all']}", type="secondary", use_container_width=True):
-            _clear_all()
-            st.rerun()
-else:
-    st.caption(f"_{T['empty_list']}_")
+        if st.button(f"🧽 {T['clear_all']}", type="secondary", use_container_width=True): _clear_all(); st.rerun()
+else: st.caption(f"_{T['empty_list']}_")
 
 num_files = len(st.session_state["uploads"])
 merge_to_one = st.checkbox(T['merge_label'], value=True, disabled=num_files <= 1)
 convert_btn = st.button(T['convert_btn'], type="primary", disabled=num_files == 0 or st.session_state["busy"])
 
 if convert_btn and not st.session_state["busy"]:
-    st.session_state["do_convert"] = True
-    st.session_state["busy"] = True
-    st.rerun()
+    st.session_state["do_convert"] = True; st.session_state["busy"] = True; st.rerun()
 
 if st.session_state["do_convert"] and st.session_state["busy"]:
     try:
         files_map = {k: v["data"] for k, v in st.session_state["uploads"].items()}
         res_bytes, res_mime = process_conversion_internal(files_map, merge_to_one)
-        
         if res_bytes:
             st.session_state["result_bytes"] = res_bytes
             st.session_state["result_mime"] = res_mime
             st.session_state["uploads"].clear()
             st.session_state["sha_index"].clear()
             st.success(T['success_msg'])
-        else:
-            st.warning("Không có dữ liệu hợp lệ để xuất file.")
-            
+        else: st.warning("Không có dữ liệu hợp lệ.")
     except Exception as e:
-        print("❌ [CRITICAL SYSTEM ERROR]:")
-        print(traceback.format_exc()) 
-        st.error(f"{T['error_msg']}") 
+        print("❌ [CRITICAL SYSTEM ERROR]:"); print(traceback.format_exc()); st.error(f"{T['error_msg']}") 
     finally:
-        st.session_state["do_convert"] = False
-        st.session_state["busy"] = False
-        _touch()
-        st.rerun()
+        st.session_state["do_convert"] = False; st.session_state["busy"] = False; _touch(); st.rerun()
 
 if st.session_state["result_bytes"]:
     ext = "xlsx" if "spreadsheet" in str(st.session_state["result_mime"]) else "zip"
     fname = "Data.xlsx" if ext == "xlsx" else "excels.zip"
-    st.download_button(
-        f"{T['download_btn']} ({ext.upper()})",
-        data=st.session_state["result_bytes"],
-        file_name=fname,
-        mime=st.session_state["result_mime"],
-        use_container_width=True,
-        type="primary"
-    )
+    st.download_button(f"{T['download_btn']} ({ext.upper()})", data=st.session_state["result_bytes"], file_name=fname, mime=st.session_state["result_mime"], use_container_width=True, type="primary")
 
-# --- FOOTER ---
 st.markdown(f'<div class="custom-footer">{T["copyright"]}</div>', unsafe_allow_html=True)
