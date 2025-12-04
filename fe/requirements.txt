@@ -1,5 +1,6 @@
 streamlit
 pandas
-xlsxwriter
 xmltodict
+XlsxWriter
 openpyxl
+lxml
