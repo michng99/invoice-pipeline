@@ -37,10 +37,10 @@ st.markdown("""
         [data-testid="stToolbar"] {display: none !important;}
         .stDeployButton {display: none !important;}
         
-        /* Tối ưu khoảng cách cho Mobile */
+        /* Tối ưu khoảng cách cho Mobile & Tránh Footer đè nút */
         .block-container {
             padding-top: 1rem !important;
-            padding-bottom: 5rem !important;
+            padding-bottom: 150px !important;
         }
 
         /* Footer tự chế */
@@ -48,17 +48,16 @@ st.markdown("""
             width: 100%;
             text-align: center;
             color: #888;
-            padding: 30px 0;
-            margin-top: 50px;
+            padding-top: 20px;
+            margin-bottom: 20px;
             border-top: 1px solid #333;
             font-size: 12px;
             font-family: sans-serif;
-            position: relative; 
-            display: block;
         }
 
         /* Fix màu Input trong Dark Mode */
         input { color: inherit !important; }
+        button { min-height: 48px !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -77,7 +76,7 @@ if st.session_state["theme"] == "dark":
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. CORE LOGIC (XỬ LÝ DATA)
+# 2. CORE LOGIC (ĐÃ FIX LỖI TÍNH TOÁN = 0)
 # ==============================================================================
 
 COLUMN_ORDER = [
@@ -93,7 +92,7 @@ MAX_TOTAL_SIZE_MB = 50
 
 def _num(v):
     try: return float(Decimal(str(v)))
-    except Exception: return None
+    except Exception: return 0.0
 
 def _txt(x): return (x or "").strip()
 
@@ -103,22 +102,15 @@ def _find_text(node: ET.Element, path: str):
     return _txt(n.text) if n is not None and n.text is not None else ""
 
 def _parse_invoice(xml_bytes: bytes, filename: str = "unknown") -> dict:
-    """
-    Parse XML thành Dictionary.
-    Có bắt lỗi chi tiết để debug nhưng không crash app.
-    """
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError:
-        # Lỗi XML không đúng định dạng -> Log vào server
         print(f"⚠️ [WARNING] File {filename} bị lỗi cấu trúc XML.")
         return {}
     except Exception as e:
-        # Lỗi khác -> Log chi tiết
         print(f"❌ [ERROR] Lỗi lạ khi parse file {filename}: {e}")
         return {}
 
-    # Helper nội bộ để lấy text nhanh
     def f(p): 
         n = root.find(p)
         return _txt(n.text) if n is not None and n.text is not None else ""
@@ -157,7 +149,6 @@ def _parse_invoice(xml_bytes: bytes, filename: str = "unknown") -> dict:
         invoice["Items"] = items
         return invoice
     except Exception as e:
-        # Bắt lỗi logic mapping
         print(f"❌ [ERROR] Lỗi khi map dữ liệu file {filename}: {traceback.format_exc()}")
         return {}
 
@@ -179,6 +170,32 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
         rows = []
 
         def create_row(it, override_vals=None):
+            # 1. Lấy dữ liệu thô
+            sl = _num(it.get("SLuong") or 0)
+            dg = _num(it.get("DGia") or 0)
+            tht = _num(it.get("ThTien") or 0)
+            
+            # 2. Xử lý thuế suất
+            ts_str = (it.get("TSuat") or "").replace("%","").replace(",",".")
+            try:
+                ts_val = float(ts_str)
+                if ts_val > 1: ts_val = ts_val / 100 
+            except:
+                ts_val = 0.08 # Mặc định 8% nếu lỗi
+
+            # 3. FIX LỖI TÍNH TOÁN (QUAN TRỌNG NHẤT)
+            vat = _num(it.get("VATAmount") or 0)
+            total = _num(it.get("Amount") or 0)
+
+            # Nếu XML thiếu VAT, tự tính: VAT = Thành tiền * Thuế
+            if vat == 0 and tht != 0:
+                vat = tht * ts_val
+                if cur.upper() == "VND": vat = round(vat)
+            
+            # Nếu XML thiếu Tổng, tự tính: Tổng = Thành tiền + VAT
+            if total == 0:
+                total = tht + vat
+
             r = {k: "" for k in COLUMN_ORDER}
             r.update({
                 "Mẫu số": ms, "KH hóa đơn": kh, "Số hóa đơn": so, "Ngày hóa đơn": ngay,
@@ -187,12 +204,12 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
                 "Mã hàng": it.get("MHHDVu") or "",
                 "Tên hàng": it.get("THHDVu") or "",
                 "Đơn vị tính": it.get("DVTinh") or "",
-                "Số lượng": _num(it.get("SLuong") or 0) or 0,
-                "Đơn giá":  _num(it.get("DGia") or 0) or 0,
-                "Tiền hàng": _num(it.get("ThTien") or 0) or 0,
-                "Thuế suất": (it.get("TSuat") or "").replace("%","").replace(",",".") if it.get("TSuat") else "",
-                "Tiền thuế": _num(it.get("VATAmount") or 0) or 0,
-                "Cộng tiền": _num(it.get("Amount") or 0) or 0,
+                "Số lượng": sl,
+                "Đơn giá":  dg,
+                "Tiền hàng": tht,
+                "Thuế suất": ts_str if ts_str else "",
+                "Tiền thuế": vat,
+                "Cộng tiền": total,
                 "Cờ (Tchat)": _num(it.get("TChat")) if (it.get("TChat") or "").isdigit() else "",
             })
             if override_vals: r.update(override_vals)
@@ -221,41 +238,32 @@ def _df_to_xlsx_stream(rows: list[dict], sheet_name="Data") -> io.BytesIO:
     return buf
 
 def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tuple[bytes, str]:
-    """
-    Hàm xử lý chính.
-    Sử dụng try/except để nếu 1 file lỗi thì log lại và bỏ qua, không chết chương trình.
-    """
     per_file_rows = []
     named_streams = []
     
     for name, data in files_data.items():
         try:
-            # Parse XML
             inv = _parse_invoice(data, filename=name)
-            # Convert to rows
             rows = _rows_from_invoice(inv)
             
             if not rows:
-                print(f"ℹ️ [INFO] File {name} không có dữ liệu dòng nào hợp lệ.")
+                print(f"ℹ️ [INFO] File {name} không có dữ liệu.")
                 continue
                 
             per_file_rows.append(rows)
             
-            # Nếu không gộp, tạo stream riêng cho từng file
             if not merge:
                 xlsx = _df_to_xlsx_stream(rows)
                 named_streams.append((f"{name.rsplit('.',1)[0]}.xlsx", xlsx.getvalue()))
                 
         except Exception:
-            # Bắt lỗi từng file một. Nếu file này lỗi, log ra server và chạy file tiếp theo
-            print(f"❌ [CRITICAL] Lỗi không xác định khi xử lý file {name}:")
-            print(traceback.format_exc()) # In chi tiết lỗi ra server logs
+            print(f"❌ [CRITICAL] Lỗi xử lý file {name}:")
+            print(traceback.format_exc())
             continue 
 
     if not per_file_rows: 
         return None, None
 
-    # Logic xuất file (Gộp hoặc Zip)
     try:
         if merge or len(named_streams) == 1:
             all_rows = []
@@ -269,12 +277,12 @@ def process_conversion_internal(files_data: Dict[str, bytes], merge: bool) -> Tu
             zbuf.seek(0)
             return zbuf.getvalue(), "application/zip"
     except Exception:
-        print(f"❌ [CRITICAL] Lỗi khi đóng gói file Excel/Zip cuối cùng:")
+        print(f"❌ [CRITICAL] Lỗi đóng gói:")
         print(traceback.format_exc())
         return None, None
 
 # ==============================================================================
-# 3. FRONTEND & STATE MANAGEMENT
+# 3. FRONTEND
 # ==============================================================================
 
 # Init State
@@ -366,7 +374,6 @@ def _add_uploads(files, text_dict):
             added.append(name)
             current_total_size += size
         except Exception:
-            print(f"Lỗi khi upload file: {traceback.format_exc()}")
             continue
 
     _touch()
@@ -396,7 +403,7 @@ LANG = {
         "success_msg": "✅ Processing Complete!",
         "error_msg": "Processing Error: ",
         "download_btn": "⬇️ Download Result",
-        "copyright": "© 2025 Chuong Minh | All Rights Reserved",
+        "copyright": "© 2025 Chuong Minh - Automation Solutions | All Rights Reserved",
         "error_too_many": "⚠️ Overload: Max {max} files allowed.",
         "error_file_big": "❌ Skipped '{name}': Too large (> {size}MB)",
         "error_total_big": "❌ Stop '{name}': Total size exceeds {size}MB",
@@ -424,7 +431,7 @@ LANG = {
         "success_msg": "✅ Xử lý thành công!",
         "error_msg": "Lỗi xử lý. Vui lòng thử lại hoặc liên hệ admin.",
         "download_btn": "⬇️ Tải về kết quả",
-        "copyright": "© 2025 Chuong Minh | All Rights Reserved",
+        "copyright": "© 2025 Bản quyền thuộc về Chuong Minh - Giải pháp tự động hóa",
         "error_too_many": "⚠️ Quá tải: Chỉ chấp nhận tối đa {max} file.",
         "error_file_big": "❌ Bỏ qua '{name}': Quá lớn (> {size}MB)",
         "error_total_big": "❌ Dừng thêm '{name}': Tổng dung lượng vượt quá {size}MB",
@@ -498,7 +505,6 @@ if convert_btn and not st.session_state["busy"]:
 
 if st.session_state["do_convert"] and st.session_state["busy"]:
     try:
-        # WRAPPER CHÍNH: Bắt lỗi toàn bộ quá trình
         files_map = {k: v["data"] for k, v in st.session_state["uploads"].items()}
         res_bytes, res_mime = process_conversion_internal(files_map, merge_to_one)
         
@@ -512,10 +518,9 @@ if st.session_state["do_convert"] and st.session_state["busy"]:
             st.warning("Không có dữ liệu hợp lệ để xuất file.")
             
     except Exception as e:
-        # Nếu có lỗi nghiêm trọng (App crash), in log server và báo User
         print("❌ [CRITICAL SYSTEM ERROR]:")
-        print(traceback.format_exc()) # DEV xem
-        st.error(f"{T['error_msg']}") # User xem (tin nhắn chung chung)
+        print(traceback.format_exc()) 
+        st.error(f"{T['error_msg']}") 
     finally:
         st.session_state["do_convert"] = False
         st.session_state["busy"] = False
