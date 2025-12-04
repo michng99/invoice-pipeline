@@ -440,4 +440,4 @@ if st.session_state["uploads"]:
             )
 
 # Footer
-st.markdown('<div class="custom-footer">© 2025 Invoice Pipeline Pro. Designed for performance.</div>', unsafe_allow_html=True)
+st.markdown('<div class="custom-footer">© 2025 Chuong Minh - Automation Solutions | Optimized For Performance .</div>', unsafe_allow_html=True)
