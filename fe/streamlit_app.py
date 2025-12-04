@@ -6,7 +6,7 @@ import pandas as pd
 import xmltodict
 
 # ==============================================================================
-# 1. CẤU HÌNH & QUẢN LÝ TRẠNG THÁI
+# 1. CẤU HÌNH & TRẠNG THÁI
 # ==============================================================================
 st.set_page_config(
     page_title="Invoice Pipeline Pro",
@@ -15,14 +15,14 @@ st.set_page_config(
     page_icon="⚡"
 )
 
-# Khởi tạo Session State
+# Init Session State
 if "uploads" not in st.session_state: st.session_state["uploads"] = {}
 if "result_bytes" not in st.session_state: st.session_state["result_bytes"] = None
 if "result_mime" not in st.session_state: st.session_state["result_mime"] = None
 if "lang_code" not in st.session_state: st.session_state["lang_code"] = "vi"
 if "theme_mode" not in st.session_state: st.session_state["theme_mode"] = "light"
 
-# Giới hạn
+# Constants
 MAX_FILES_ALLOWED = 50       
 MAX_FILE_SIZE_MB = 10        
 ALLOWED_EXTENSIONS = ["xml"]
@@ -65,128 +65,128 @@ LANG = {
 T = LANG[st.session_state["lang_code"]]
 
 # ==============================================================================
-# 3. SUPER-MODERN CSS ENGINE (GLASSMORPHISM)
+# 3. ULTRA-CONTRAST CSS ENGINE
 # ==============================================================================
 is_dark = st.session_state["theme_mode"] == "dark"
 
-# Cấu hình màu sắc nâng cao
+# Cấu hình màu sắc ĐỐI LẬP HOÀN TOÀN (High Contrast)
 theme = {
-    # Gradient nền (Aurora effect)
+    # Nền Aurora: Dark thì nền cực tối, Light thì nền cực sáng để làm nổi chữ
     "bg_gradient": 
-        "radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(225,39%,30%,1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(339,49%,30%,1) 0, transparent 50%)" 
+        "linear-gradient(to bottom right, #000000, #1a103c, #000000)" 
         if is_dark else 
-        "radial-gradient(at 0% 0%, hsla(253,16%,7%,0.1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(225,39%,30%,0.1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(339,49%,30%,0.1) 0, transparent 50%)",
+        "linear-gradient(to bottom right, #ffffff, #e0e7ff, #f3f4f6)",
     
-    "bg_color": "#0f172a" if is_dark else "#f8fafc",
+    # Kính: Dark mode kính đen mờ, Light mode kính trắng mờ
+    "glass_bg": "rgba(20, 20, 20, 0.85)" if is_dark else "rgba(255, 255, 255, 0.9)",
+    "glass_border": "rgba(255, 255, 255, 0.15)" if is_dark else "rgba(0, 0, 0, 0.05)",
+    "glass_shadow": "0 8px 32px 0 rgba(0, 0, 0, 0.5)" if is_dark else "0 8px 32px 0 rgba(31, 38, 135, 0.07)",
     
-    # Hiệu ứng kính (Glass card)
-    "glass_bg": "rgba(17, 24, 39, 0.7)" if is_dark else "rgba(255, 255, 255, 0.7)",
-    "glass_border": "rgba(255, 255, 255, 0.1)" if is_dark else "rgba(255, 255, 255, 0.4)",
-    "glass_shadow": "0 8px 32px 0 rgba(0, 0, 0, 0.3)" if is_dark else "0 8px 32px 0 rgba(31, 38, 135, 0.1)",
+    # Chữ: Dark mode dùng TRẮNG TINH (#FFF), Light mode dùng ĐEN TUYỀN (#000)
+    "text_main": "#FFFFFF" if is_dark else "#111827",
+    "text_sub": "#cbd5e1" if is_dark else "#4b5563", # Màu phụ sáng hơn ở dark mode
     
-    "text_main": "#f1f5f9" if is_dark else "#1e293b",
-    "text_sub": "#94a3b8" if is_dark else "#64748b",
-    "accent": "#6366f1", # Indigo 500
-    "accent_glow": "0 0 20px rgba(99, 102, 241, 0.5)"
+    "accent": "#818cf8" if is_dark else "#4f46e5",
+    "btn_text": "#FFFFFF", # Chữ trên nút luôn trắng
 }
 
 st.markdown(f"""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
 
-        /* --- GLOBAL RESET & BACKGROUND --- */
+        /* --- GLOBAL & TEXT RESET --- */
         .stApp {{
-            background-color: {theme['bg_color']};
             background-image: {theme['bg_gradient']};
             background-attachment: fixed;
             background-size: cover;
             font-family: 'Plus Jakarta Sans', sans-serif;
         }}
+
+        /* ÉP MÀU CHỮ TOÀN CỤC */
+        h1, h2, h3, p, div, span, label, .stMarkdown {{
+            color: {theme['text_main']} !important;
+        }}
         
+        .subtitle {{
+            color: {theme['text_sub']} !important;
+        }}
+
+        /* Ẩn Header mặc định */
         .stDeployButton, footer, header, [data-testid="stHeader"] {{ display: none !important; }}
         
-        /* Căn chỉnh lại container chính để tạo hiệu ứng Card nổi */
         .block-container {{
-            padding-top: 3rem !important;
+            padding-top: 2rem !important;
             padding-bottom: 3rem !important;
             max_width: 800px !important;
         }}
 
-        /* --- GLASSMORPHISM CARD (CONTAINER CHÍNH) --- */
-        /* Đây là lớp bọc toàn bộ nội dung */
-        div[data-testid="stVerticalBlock"] > div:has(div.stMarkdown) {{
-            /* Trick để không bọc nhầm */
-        }}
-        
-        /* --- UPLOADER STYLE --- */
+        /* --- UPLOADER (HIGH CONTRAST) --- */
         [data-testid="stFileUploader"] {{
             background: {theme['glass_bg']};
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px dashed {theme['accent']};
+            border: 2px dashed {theme['accent']}; /* Viền đậm hơn */
             border-radius: 16px;
             padding: 30px;
             box-shadow: {theme['glass_shadow']};
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            backdrop-filter: blur(10px);
         }}
-        [data-testid="stFileUploader"]:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 12px 40px rgba(99, 102, 241, 0.2);
-            border-color: #818cf8;
-        }}
-        [data-testid="stFileUploader"] section > div {{
-            color: {theme['text_sub']} !important;
-        }}
+        
+        /* Xử lý chữ trong Uploader - Cái này hay bị ẩn */
+        [data-testid="stFileUploader"] div, 
+        [data-testid="stFileUploader"] span,
         [data-testid="stFileUploader"] small {{
-            display: none; /* Ẩn dòng limit mặc định cho gọn */
+            color: {theme['text_main']} !important;
         }}
-        /* Icon Cloud custom color */
         [data-testid="stFileUploader"] svg {{
-            color: {theme['accent']};
-            width: 3rem; height: 3rem;
+            fill: {theme['accent']} !important;
+        }}
+        /* Nút Browse files bên trong uploader */
+        [data-testid="stFileUploader"] button {{
+            color: {theme['text_main']} !important;
+            border-color: {theme['text_main']} !important;
         }}
 
         /* --- BUTTONS --- */
         button[kind="primary"] {{
             background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             border: 0;
-            border-radius: 12px;
-            color: white !important;
+            border-radius: 10px;
+            color: #FFFFFF !important; /* Luôn trắng */
             padding: 0.8rem 1.5rem;
-            font-weight: 600;
-            letter-spacing: 0.5px;
+            font-weight: 700;
             box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
-            transition: all 0.3s ease;
+            transition: transform 0.2s;
         }}
         button[kind="primary"]:hover {{
-            box-shadow: 0 8px 25px rgba(79, 70, 229, 0.6);
-            transform: translateY(-2px);
+            transform: scale(1.02);
         }}
         
-        /* Secondary Button (Refresh/Toggle) */
+        /* Nút Secondary (Toggle/Refresh) */
         button[kind="secondary"] {{
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(148, 163, 184, 0.3);
+            background: {theme['glass_bg']};
+            border: 1px solid {theme['glass_border']};
             color: {theme['text_main']} !important;
-            border-radius: 10px;
-        }}
-        button[kind="secondary"]:hover {{
-            border-color: {theme['accent']};
-            color: {theme['accent']} !important;
         }}
 
-        /* --- TYPOGRAPHY --- */
+        /* --- DATAFRAME --- */
+        [data-testid="stDataFrame"] {{
+            background: {theme['glass_bg']};
+            border: 1px solid {theme['glass_border']};
+            border-radius: 10px;
+        }}
+        [data-testid="stDataFrame"] div {{
+            color: {theme['text_main']} !important;
+        }}
+
+        /* --- TYPOGRAPHY EFFECTS --- */
         h1 {{
             font-weight: 800 !important;
-            color: {theme['text_main']};
+            font-size: 3.2rem !important;
             text-align: center;
-            font-size: 3rem !important;
-            letter-spacing: -0.05em;
-            margin-bottom: 0.2rem;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 0.5rem;
+            /* Text Shadow nhẹ để nổi trên nền gradient */
+            text-shadow: 0 2px 20px rgba(0,0,0,0.2); 
         }}
         
-        /* Gradient Text cho chữ 'Pro' */
         .gradient-text {{
             background: linear-gradient(to right, #818cf8, #c084fc);
             -webkit-background-clip: text;
@@ -195,35 +195,27 @@ st.markdown(f"""
 
         p.subtitle {{
             text-align: center;
-            color: {theme['text_sub']};
-            font-size: 1.1rem;
-            font-weight: 400;
+            font-size: 1.2rem;
+            font-weight: 500;
             margin-bottom: 3rem;
+            opacity: 0.9;
         }}
 
-        /* --- DATAFRAME & TABLE --- */
-        [data-testid="stDataFrame"] {{
-            background: {theme['glass_bg']};
-            border: 1px solid {theme['glass_border']};
-            border-radius: 12px;
-            backdrop-filter: blur(4px);
-        }}
-        
-        /* --- FOOTER --- */
+        /* Footer */
         .custom-footer {{
             text-align: center;
             font-size: 0.8rem;
-            color: {theme['text_sub']};
+            color: {theme['text_sub']} !important;
             margin-top: 4rem;
-            opacity: 0.7;
+            border-top: 1px solid {theme['glass_border']};
+            padding-top: 20px;
         }}
     </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 4. LOGIC LÕI (CORE BUSINESS LOGIC - GIỮ NGUYÊN)
+# 4. LOGIC LÕI (GIỮ NGUYÊN)
 # ==============================================================================
-# ... (Phần logic không đổi để đảm bảo tính năng chạy đúng) ...
 def _num(v: Any) -> float:
     if not v: return 0.0
     try:
@@ -391,7 +383,8 @@ def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
 # 5. UI LAYOUT & CONTROL BAR (FLOATING STYLE)
 # ==============================================================================
 
-# --- Control Bar (Nằm gọn bên phải) ---
+# --- Control Bar ---
+# Dùng CSS để đẩy nút này lên góc đẹp hơn, nhưng ở đây dùng Columns cho ổn định
 col_logo, col_space, col_ctrl = st.columns([2, 4, 2])
 
 with col_ctrl:
@@ -409,12 +402,11 @@ with col_ctrl:
             st.rerun()
 
 # --- Hero Section ---
-st.markdown("---") # Spacer ẩn
+st.markdown("---") 
 st.markdown(f'<h1>{T["title"]} <span class="gradient-text">Pro</span></h1>', unsafe_allow_html=True)
 st.markdown(f'<p class="subtitle">{T["subtitle"]}</p>', unsafe_allow_html=True)
 
-# --- Main Container (Glass Card) ---
-# Uploader nằm trực tiếp trên nền glass, không cần card bọc ngoài vì uploader đã style thành card rồi
+# --- Main Container ---
 uploaded_files = st.file_uploader(
     label=T["upload_lbl"], 
     type=ALLOWED_EXTENSIONS, 
@@ -422,7 +414,7 @@ uploaded_files = st.file_uploader(
     key="uploader"
 )
 
-# Xử lý Logic cộng dồn file
+# Xử lý Logic cộng dồn
 if uploaded_files:
     store = st.session_state["uploads"]
     count_new = 0
@@ -438,11 +430,10 @@ if uploaded_files:
         time.sleep(0.5)
         st.rerun()
 
-# --- Dashboard View (Khi có data) ---
+# --- Dashboard View ---
 if st.session_state["uploads"]:
     st.markdown("###") # Spacer
     
-    # Chia layout: Bên trái List file, Bên phải Actions
     c1, c2 = st.columns([5, 3])
     
     with c1:
@@ -452,7 +443,6 @@ if st.session_state["uploads"]:
         st.dataframe(data_view, use_container_width=True, hide_index=True, height=220)
     
     with c2:
-        # Action Box
         st.markdown("")
         if st.button(T["btn_process"], type="primary", use_container_width=True):
             with st.status(T["status_process"], expanded=True) as status:
@@ -481,13 +471,12 @@ if st.session_state["uploads"]:
                     st.error(f"{T['status_fail']}: {str(e)}")
                     status.update(label=T["status_fail"], state="error")
         
-        # Nút xóa
         if st.button(T["btn_clear"], use_container_width=True, type="secondary"):
             st.session_state["uploads"].clear()
             st.session_state["result_bytes"] = None
             st.rerun()
 
-    # Download Button (Nổi bật hẳn ra)
+    # Download Button
     if st.session_state.get("result_bytes"):
         st.markdown("---")
         c_center = st.columns([1, 2, 1])
@@ -502,4 +491,4 @@ if st.session_state["uploads"]:
             )
 
 # Footer
-st.markdown('<div class="custom-footer">© 2025 Invoice Pipeline Pro | Crafted with ❤️</div>', unsafe_allow_html=True)
+st.markdown('<div class="custom-footer">© 2025 Chuong Minh - Automation Solutions | Optimized For Performance. </div>', unsafe_allow_html=True)
