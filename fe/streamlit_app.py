@@ -6,135 +6,163 @@ import pandas as pd
 import xmltodict
 
 # ==============================================================================
-# 1. CẤU HÌNH & GIAO DIỆN (CONFIGURATION & UI THEME)
+# 1. CẤU HÌNH & QUẢN LÝ TRẠNG THÁI
 # ==============================================================================
 st.set_page_config(
     page_title="Invoice Pipeline Pro",
-    layout="centered", # Chuyển về Centered nhìn cho tập trung, giống app chuyên nghiệp hơn Wide
+    layout="centered",
     initial_sidebar_state="collapsed",
     page_icon="⚡"
 )
-
-# Giới hạn cứng
-MAX_FILES_ALLOWED = 50       
-MAX_FILE_SIZE_MB = 10        
-ALLOWED_EXTENSIONS = ["xml"]
-
-# --- CSS CAO CẤP (PREMIUM MINIMALIST STYLE) ---
-st.markdown("""
-    <style>
-        /* Import Font Inter từ Google Fonts cho sang */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-
-        html, body, [class*="css"] {
-            font-family: 'Inter', sans-serif;
-            color: #1F2937;
-        }
-
-        /* Ẩn Header/Footer mặc định gây rối mắt */
-        .stDeployButton, footer, header, [data-testid="stHeader"] { display: none !important; }
-        
-        /* Chỉnh lại padding cho thoáng */
-        .block-container {
-            padding-top: 3rem !important;
-            padding-bottom: 5rem !important;
-            max_width: 900px !important;
-        }
-
-        /* --- CARD UI STYLE --- */
-        /* Tạo khung trắng bao quanh các thành phần chính */
-        div[data-testid="stVerticalBlock"] > div:has(div.stMarkdown) {
-            background-color: transparent;
-        }
-        
-        /* Style cho File Uploader nhìn xịn hơn */
-        [data-testid="stFileUploader"] {
-            background-color: #ffffff;
-            border: 1px dashed #4F46E5; /* Viền đứt màu tím chủ đạo */
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            transition: all 0.3s ease;
-        }
-        [data-testid="stFileUploader"]:hover {
-            border-color: #4338ca;
-            background-color: #fcfcff;
-        }
-        section[data-testid="stFileUploaderDropzone"] > div > small {
-            font-size: 14px; color: #6B7280;
-        }
-
-        /* Style cho Nút bấm (Primary Button) */
-        button[kind="primary"] {
-            background: linear-gradient(135deg, #4F46E5 0%, #4338ca 100%);
-            border: none;
-            border-radius: 8px;
-            color: white;
-            padding: 0.75rem 1.5rem;
-            font-weight: 600;
-            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);
-            transition: all 0.2s;
-            width: 100%;
-        }
-        button[kind="primary"]:hover {
-            box-shadow: 0 6px 10px rgba(79, 70, 229, 0.4);
-            transform: translateY(-1px);
-        }
-
-        /* Style cho DataFrame (Bảng) */
-        [data-testid="stDataFrame"] {
-            border: 1px solid #E5E7EB;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-
-        /* Custom Title & Header */
-        h1 {
-            font-weight: 800 !important;
-            letter-spacing: -0.025em;
-            color: #111827;
-            font-size: 2.5rem !important;
-            text-align: center;
-            margin-bottom: 0.5rem;
-        }
-        p.subtitle {
-            text-align: center;
-            color: #6B7280;
-            font-size: 1.1rem;
-            margin-bottom: 2.5rem;
-        }
-
-        /* Footer nhỏ gọn */
-        .custom-footer {
-            text-align: center;
-            font-size: 0.85rem;
-            color: #9CA3AF;
-            margin-top: 3rem;
-            border-top: 1px solid #E5E7EB;
-            padding-top: 1rem;
-        }
-        
-        /* Metric Box nhỏ xinh */
-        div[data-testid="stMetricValue"] {
-            font-size: 1.5rem !important;
-            color: #4F46E5 !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 # Khởi tạo Session State
 if "uploads" not in st.session_state: st.session_state["uploads"] = {}
 if "result_bytes" not in st.session_state: st.session_state["result_bytes"] = None
 if "result_mime" not in st.session_state: st.session_state["result_mime"] = None
+if "lang_code" not in st.session_state: st.session_state["lang_code"] = "vi"
+if "theme_mode" not in st.session_state: st.session_state["theme_mode"] = "light"
+
+# Giới hạn
+MAX_FILES_ALLOWED = 50       
+MAX_FILE_SIZE_MB = 10        
+ALLOWED_EXTENSIONS = ["xml"]
 
 # ==============================================================================
-# 2. LOGIC LÕI (GIỮ NGUYÊN - KHÔNG ĐỔI)
+# 2. BỘ TỪ ĐIỂN NGÔN NGỮ (RESTORED)
 # ==============================================================================
-# (Phần này tui giữ nguyên logic xử lý XML ở phiên bản trước, chỉ rút gọn hiển thị code ở đây để ông dễ nhìn phần UI)
-# ... [Paste lại toàn bộ hàm _num, _find_key_recursive, _parse_invoice_data, _rows_from_invoice, _df_to_xlsx_stream y chang phiên bản trước vào đây] ...
+LANG = {
+    "vi": {
+        "title": "Invoice Pipeline", "subtitle": "Hệ thống xử lý hóa đơn tự động & tối ưu thuế",
+        "upload_lbl": "Tải lên file XML hóa đơn (Kéo thả vào đây)",
+        "list_header": "Danh sách file chờ xử lý",
+        "btn_process": "🚀 Xử lý & Xuất Excel",
+        "btn_clear": "Làm mới",
+        "btn_dl": "⬇️ TẢI FILE EXCEL NGAY",
+        "toast_add": "Đã thêm file mới!",
+        "status_process": "Đang phân tích dữ liệu...",
+        "status_done": "Hoàn tất!",
+        "status_empty": "Không có dữ liệu!",
+        "status_fail": "Thất bại",
+        "col_file": "Tên File", "col_size": "Dung lượng"
+    },
+    "en": {
+        "title": "Invoice Pipeline", "subtitle": "Automated Invoice Processing & Tax Optimization",
+        "upload_lbl": "Upload XML Invoices (Drag & Drop here)",
+        "list_header": "Pending Files",
+        "btn_process": "🚀 Process to Excel",
+        "btn_clear": "Reset",
+        "btn_dl": "⬇️ DOWNLOAD EXCEL",
+        "toast_add": "Files added!",
+        "status_process": "Processing data...",
+        "status_done": "Done!",
+        "status_empty": "No data found!",
+        "status_fail": "Failed",
+        "col_file": "Filename", "col_size": "Size"
+    }
+}
+T = LANG[st.session_state["lang_code"]]
 
-# --- ĐỂ TIỆN CHO ÔNG COPY, TUI PASTE LẠI CÁC HÀM LOGIC CẦN THIẾT Ở DƯỚI ĐÂY LUÔN ---
+# ==============================================================================
+# 3. CSS ĐỘNG (DYNAMIC THEME ENGINE)
+# ==============================================================================
+# Xác định màu sắc dựa trên chế độ đang chọn
+is_dark = st.session_state["theme_mode"] == "dark"
+
+theme_cfg = {
+    "bg_color": "#111827" if is_dark else "#F3F4F6",        # Nền tổng
+    "card_bg":  "#1F2937" if is_dark else "#ffffff",        # Nền thẻ/khung
+    "text_main": "#F9FAFB" if is_dark else "#1F2937",       # Chữ chính
+    "text_sub":  "#9CA3AF" if is_dark else "#6B7280",       # Chữ phụ
+    "border":    "#374151" if is_dark else "#E5E7EB",       # Viền
+    "accent":    "#818CF8" if is_dark else "#4F46E5",       # Màu tím chủ đạo
+    "accent_hover": "#6366F1" if is_dark else "#4338ca"     # Màu tím khi hover
+}
+
+st.markdown(f"""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+        html, body, [class*="css"] {{
+            font-family: 'Inter', sans-serif;
+            color: {theme_cfg['text_main']};
+            background-color: {theme_cfg['bg_color']};
+        }}
+
+        /* Ghi đè nền mặc định của Streamlit */
+        .stApp {{
+            background-color: {theme_cfg['bg_color']} !important;
+        }}
+
+        /* Ẩn Header/Footer mặc định */
+        .stDeployButton, footer, header, [data-testid="stHeader"] {{ display: none !important; }}
+        
+        .block-container {{
+            padding-top: 2rem !important;
+            padding-bottom: 5rem !important;
+            max_width: 900px !important;
+        }}
+
+        /* --- CARD UI STYLE --- */
+        [data-testid="stFileUploader"] {{
+            background-color: {theme_cfg['card_bg']};
+            border: 1px dashed {theme_cfg['accent']};
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }}
+        [data-testid="stFileUploader"] section > div {{
+            color: {theme_cfg['text_sub']} !important;
+        }}
+        [data-testid="stFileUploader"] small {{
+            color: {theme_cfg['text_sub']} !important;
+        }}
+
+        /* Style cho Nút bấm Primary */
+        button[kind="primary"] {{
+            background: linear-gradient(135deg, {theme_cfg['accent']} 0%, {theme_cfg['accent_hover']} 100%);
+            border: none; border-radius: 8px; color: white !important;
+            padding: 0.75rem 1.5rem; font-weight: 600;
+            box-shadow: 0 4px 6px rgba(0,0,0, 0.2);
+            transition: all 0.2s;
+        }}
+        button[kind="primary"]:hover {{ transform: translateY(-1px); }}
+
+        /* Style cho Nút bấm Secondary (Settings) */
+        button[kind="secondary"] {{
+            background-color: {theme_cfg['card_bg']};
+            color: {theme_cfg['text_main']};
+            border: 1px solid {theme_cfg['border']};
+            border-radius: 20px; /* Nút tròn */
+            font-size: 12px;
+        }}
+
+        /* Table Style */
+        [data-testid="stDataFrame"] {{
+            background-color: {theme_cfg['card_bg']};
+            border: 1px solid {theme_cfg['border']};
+            border-radius: 8px;
+        }}
+
+        /* Typography */
+        h1 {{
+            font-weight: 800 !important; letter-spacing: -0.025em;
+            color: {theme_cfg['text_main']}; font-size: 2.5rem !important;
+            text-align: center; margin-bottom: 0.5rem;
+        }}
+        p.subtitle {{
+            text-align: center; color: {theme_cfg['text_sub']};
+            font-size: 1.1rem; margin-bottom: 1.5rem;
+        }}
+        .custom-footer {{
+            text-align: center; font-size: 0.85rem; color: {theme_cfg['text_sub']};
+            margin-top: 3rem; border-top: 1px solid {theme_cfg['border']}; padding-top: 1rem;
+        }}
+    </style>
+""", unsafe_allow_html=True)
+
+# ==============================================================================
+# 4. LOGIC LÕI (CORE BUSINESS LOGIC - GIỮ NGUYÊN)
+# ==============================================================================
 def _num(v: Any) -> float:
     if not v: return 0.0
     try:
@@ -299,24 +327,42 @@ def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
     return buf
 
 # ==============================================================================
-# 3. GIAO DIỆN NGƯỜI DÙNG CAO CẤP (PREMIUM FRONTEND UI)
+# 5. UI LAYOUT & CONTROL BAR
 # ==============================================================================
 
-# Header Section (Hero)
-st.markdown('<h1>Invoice Pipeline <span style="color:#4F46E5">Pro</span></h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Hệ thống xử lý hóa đơn tự động & tối ưu thuế</p>', unsafe_allow_html=True)
+# --- Thanh công cụ (Control Bar) ---
+c_spacer, c_lang, c_theme = st.columns([6, 1, 1])
 
-# Container chính (Card Effect)
+with c_lang:
+    # Logic đảo ngữ
+    current_lang = st.session_state["lang_code"]
+    label_lang = "🇻🇳 VN" if current_lang == "vi" else "🇬🇧 EN"
+    if st.button(label_lang, key="btn_lang", use_container_width=True):
+        st.session_state["lang_code"] = "en" if current_lang == "vi" else "vi"
+        st.rerun()
+
+with c_theme:
+    # Logic đảo màu
+    current_theme = st.session_state["theme_mode"]
+    label_theme = "🌙" if current_theme == "light" else "☀️"
+    if st.button(label_theme, key="btn_theme", use_container_width=True):
+        st.session_state["theme_mode"] = "dark" if current_theme == "light" else "light"
+        st.rerun()
+
+# --- Header Section ---
+st.markdown(f'<h1>{T["title"]} <span style="color:{theme_cfg["accent"]}">Pro</span></h1>', unsafe_allow_html=True)
+st.markdown(f'<p class="subtitle">{T["subtitle"]}</p>', unsafe_allow_html=True)
+
+# --- Main Container ---
 with st.container():
     # Upload Area
     uploaded_files = st.file_uploader(
-        label="Tải lên file XML hóa đơn (Kéo thả vào đây)", 
+        label=T["upload_lbl"], 
         type=ALLOWED_EXTENSIONS, 
         accept_multiple_files=True, 
         key="uploader"
     )
 
-    # Logic Accumulate (Cộng dồn file upload)
     if uploaded_files:
         store = st.session_state["uploads"]
         count_new = 0
@@ -328,35 +374,27 @@ with st.container():
                     count_new += 1
         
         if count_new > 0:
-            st.toast(f"Đã thêm {count_new} file mới!", icon="✨")
+            st.toast(T["toast_add"], icon="✨")
             time.sleep(0.5)
             st.rerun()
 
-# Dashboard View (Chỉ hiện khi có file)
+# --- Dashboard ---
 if st.session_state["uploads"]:
     st.markdown("---")
     
-    # 2 Cột: List file và Thống kê nhanh
     c1, c2 = st.columns([2, 1])
     
     with c1:
-        st.caption(f"📁 **Danh sách file chờ xử lý ({len(st.session_state['uploads'])})**")
-        # Tạo dataframe view đơn giản
-        data_view = [{"File": k, "Size": f"{v['size']/1024:.1f} KB"} 
+        st.caption(f"📁 **{T['list_header']} ({len(st.session_state['uploads'])})**")
+        data_view = [{T["col_file"]: k, T["col_size"]: f"{v['size']/1024:.1f} KB"} 
                      for k,v in st.session_state["uploads"].items()]
-        st.dataframe(
-            data_view, 
-            use_container_width=True, 
-            hide_index=True,
-            height=200
-        )
+        st.dataframe(data_view, use_container_width=True, hide_index=True, height=200)
     
     with c2:
-        # Card Action nhỏ
         with st.container():
             st.write("") # Spacer
-            if st.button("🚀 Xử lý & Xuất Excel", type="primary", use_container_width=True):
-                with st.status("Đang phân tích dữ liệu...", expanded=True) as status:
+            if st.button(T["btn_process"], type="primary", use_container_width=True):
+                with st.status(T["status_process"], expanded=True) as status:
                     try:
                         all_rows = []
                         files = st.session_state["uploads"]
@@ -374,27 +412,26 @@ if st.session_state["uploads"]:
                             excel_data = _df_to_xlsx_stream(all_rows)
                             st.session_state["result_bytes"] = excel_data.getvalue()
                             st.session_state["result_mime"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            status.update(label="Hoàn tất!", state="complete", expanded=False)
+                            status.update(label=T["status_done"], state="complete", expanded=False)
                             st.balloons()
                         else:
-                            status.update(label="Không có dữ liệu!", state="error")
+                            status.update(label=T["status_empty"], state="error")
                     except Exception as e:
-                        st.error(f"Lỗi: {str(e)}")
-                        status.update(label="Thất bại", state="error")
+                        st.error(f"{T['status_fail']}: {str(e)}")
+                        status.update(label=T["status_fail"], state="error")
             
-            # Nút xóa nằm riêng cho đỡ bấm nhầm
-            if st.button("Làm mới danh sách", use_container_width=True):
+            if st.button(T["btn_clear"], use_container_width=True):
                 st.session_state["uploads"].clear()
                 st.session_state["result_bytes"] = None
                 st.rerun()
 
-    # Download Section (Nổi bật)
+    # Download Section
     if st.session_state.get("result_bytes"):
-        st.markdown("### ✅ Kết quả đã sẵn sàng")
+        st.markdown("### ✅ Result")
         col_dl, _ = st.columns([1, 1])
         with col_dl:
             st.download_button(
-                label="⬇️ TẢI FILE EXCEL NGAY",
+                label=T["btn_dl"],
                 data=st.session_state["result_bytes"],
                 file_name=f"Invoice_Export_{int(time.time())}.xlsx",
                 mime=st.session_state["result_mime"],
@@ -402,5 +439,5 @@ if st.session_state["uploads"]:
                 use_container_width=True
             )
 
-# Footer tinh tế
-st.markdown('<div class="custom-footer">© 2025 Chuong Minh - Automation Solutions | Optimized for Performance.</div>', unsafe_allow_html=True)
+# Footer
+st.markdown('<div class="custom-footer">© 2025 Invoice Pipeline Pro. Designed for performance.</div>', unsafe_allow_html=True)
