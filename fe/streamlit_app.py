@@ -385,7 +385,7 @@ if st.session_state["uploads"]:
         st.dataframe(data_view, use_container_width=True, hide_index=True, height=250)
     
     with c_act:
-        st.write("### Tác vụ")
+        st.write("### Process")
         if st.button(f"🗑️ {T['clear']}", use_container_width=True):
             st.session_state["uploads"].clear()
             st.session_state["result_bytes"] = None
@@ -443,4 +443,4 @@ if st.session_state.get("result_bytes"):
         )
 
 # Footer
-st.markdown('<div class="custom-footer">© 2025 Invoice Processor Tool | Optimized for Performance</div>', unsafe_allow_html=True)
+st.markdown('<div class="custom-footer">© 2025 Chuong Minh - Automation Solutions | Optimized for Performance</div>', unsafe_allow_html=True)
