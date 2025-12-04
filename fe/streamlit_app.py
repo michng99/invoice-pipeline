@@ -76,7 +76,7 @@ if st.session_state["theme"] == "dark":
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. CORE LOGIC (FIX LỖI TÍNH THUẾ)
+# 2. CORE LOGIC (ĐÃ BỔ SUNG SUY LUẬN THUẾ SUẤT)
 # ==============================================================================
 
 COLUMN_ORDER = [
@@ -174,33 +174,43 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
             sl = _num(it.get("SLuong") or 0)
             dg = _num(it.get("DGia") or 0)
             tht = _num(it.get("ThTien") or 0)
+            vat = _num(it.get("VATAmount") or 0)
+            total = _num(it.get("Amount") or 0)
             
-            # 2. Xử lý thuế suất (Logic mới: Cẩn trọng hơn)
+            # 2. Xử lý thuế suất
             ts_raw = _txt(it.get("TSuat"))
             ts_str = ts_raw.replace("%","").replace(",",".")
-            ts_val = 0.0 # Mặc định là 0%
+            ts_val = 0.0 
 
-            # Chỉ parse nếu chuỗi không rỗng
             if ts_str:
                 try:
                     val = float(ts_str)
                     if val > 1: val = val / 100 
                     ts_val = val
                 except:
-                    # Nếu là chữ (KCT, KKKNT...) hoặc lỗi -> Coi như 0%
                     ts_val = 0.0
             
-            # 3. FIX LỖI TÍNH TOÁN
-            vat = _num(it.get("VATAmount") or 0)
-            total = _num(it.get("Amount") or 0)
-
-            # Chỉ tự tính VAT nếu trong XML = 0 VÀ có thuế suất > 0
-            # (Ngăn chặn việc tự tính 8% khi thuế suất rỗng)
+            # 3. LOGIC TÍNH TOÁN & SUY LUẬN (UPDATE)
+            
+            # Case A: XML thiếu Tiền thuế -> Tự tính (Nếu có thuế suất)
             if vat == 0 and tht != 0 and ts_val > 0:
                 vat = tht * ts_val
                 if cur.upper() == "VND": vat = round(vat)
             
-            # Tính tổng: Luôn bằng Thành tiền + Thuế (dù thuế = 0)
+            # Case B: XML có Tiền thuế nhưng thiếu % Thuế suất -> Suy luận ngược
+            final_ts_display = ts_raw
+            if not final_ts_display and vat > 0 and tht > 0:
+                try:
+                    calc_rate = (vat / tht) * 100
+                    # Làm tròn và gán các mức thuế phổ biến
+                    if abs(calc_rate - 8) < 0.5: final_ts_display = "8%"
+                    elif abs(calc_rate - 10) < 0.5: final_ts_display = "10%"
+                    elif abs(calc_rate - 5) < 0.5: final_ts_display = "5%"
+                    else: final_ts_display = f"{round(calc_rate, 2)}%"
+                except:
+                    pass # Lỗi chia 0 hoặc gì đó thì bỏ qua
+
+            # Tính tổng
             if total == 0:
                 total = tht + vat
 
@@ -215,7 +225,7 @@ def _rows_from_invoice(inv: dict) -> list[dict]:
                 "Số lượng": sl,
                 "Đơn giá":  dg,
                 "Tiền hàng": tht,
-                "Thuế suất": ts_raw, # Giữ nguyên text gốc (để hiện KCT/Rỗng nếu có)
+                "Thuế suất": final_ts_display, # Dùng giá trị đã suy luận
                 "Tiền thuế": vat,
                 "Cộng tiền": total,
                 "Cờ (Tchat)": _num(it.get("TChat")) if (it.get("TChat") or "").isdigit() else "",
@@ -411,7 +421,7 @@ LANG = {
         "success_msg": "✅ Processing Complete!",
         "error_msg": "Processing Error: ",
         "download_btn": "⬇️ Download Result",
-        "copyright": "© 2025 Chuong Minh - Automation Solutions | All Rights Reserved",
+        "copyright": "© 2025 Chuong Minh | All Rights Reserved",
         "error_too_many": "⚠️ Overload: Max {max} files allowed.",
         "error_file_big": "❌ Skipped '{name}': Too large (> {size}MB)",
         "error_total_big": "❌ Stop '{name}': Total size exceeds {size}MB",
@@ -439,7 +449,7 @@ LANG = {
         "success_msg": "✅ Xử lý thành công!",
         "error_msg": "Lỗi xử lý. Vui lòng thử lại hoặc liên hệ admin.",
         "download_btn": "⬇️ Tải về kết quả",
-        "copyright": "© 2025 Bản quyền thuộc vể Chuong Minh - Giải pháp tự động hóa",
+        "copyright": "© 2025 Chuong Minh | All Rights Reserved",
         "error_too_many": "⚠️ Quá tải: Chỉ chấp nhận tối đa {max} file.",
         "error_file_big": "❌ Bỏ qua '{name}': Quá lớn (> {size}MB)",
         "error_total_big": "❌ Dừng thêm '{name}': Tổng dung lượng vượt quá {size}MB",
