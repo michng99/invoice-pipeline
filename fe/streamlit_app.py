@@ -309,23 +309,23 @@ st.markdown(f"""
         
         /* 1. Target chung cho cả Nút thường (stButton) và Nút tải về (stDownloadButton) */
         div[data-testid="stButton"] button, 
-        div[data-testid="stDownloadButton"] button {
+        div[data-testid="stDownloadButton"] button {{
             font-weight: 800 !important; /* ExtraBold */
             font-family: 'Manrope', sans-serif !important;
             letter-spacing: 0.04em !important;
             font-size: 1rem !important;
             transition: all 0.2s ease-in-out !important;
-        }
+        }}
 
         /* 2. Đảm bảo text bên trong (thẻ p) cũng dính style đậm */
         div[data-testid="stButton"] button p, 
-        div[data-testid="stDownloadButton"] button p {
+        div[data-testid="stDownloadButton"] button p {{
             font-weight: 800 !important;
-        }
+        }}
 
         /* 3. Style cho Nút Chính (Primary) - Xử lý & Tải về */
         div[data-testid="stButton"] button[kind="primary"],
-        div[data-testid="stDownloadButton"] button[kind="primary"] {
+        div[data-testid="stDownloadButton"] button[kind="primary"] {{
             /* Fix màu tương phản: Dark mode dùng nền sáng chữ tối, Light mode dùng nền tối chữ trắng */
             background: {c_text_dark if is_dark else "#3a3528"} !important; 
             color: {c_bg_dark if is_dark else "#ffffff"} !important; 
@@ -333,23 +333,23 @@ st.markdown(f"""
             border-radius: 12px !important;
             padding: 0.75rem 1.5rem !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-        }
+        }}
 
         /* 4. Style cho Nút Phụ (Secondary) - Làm mới */
-        div[data-testid="stButton"] button[kind="secondary"] {
+        div[data-testid="stButton"] button[kind="secondary"] {{
             background: transparent !important;
             color: {c_text_dark if is_dark else c_text_light} !important;
             border: 2px solid {c_border_dark if is_dark else c_border_light} !important; 
             border-radius: 12px !important;
-        }
+        }}
         
         /* 5. Hiệu ứng Hover */
         div[data-testid="stButton"] button:hover,
-        div[data-testid="stDownloadButton"] button:hover {
+        div[data-testid="stDownloadButton"] button:hover {{
             transform: translateY(-2px);
             filter: brightness(1.1);
             box-shadow: 0 6px 16px rgba(0,0,0,0.2) !important;
-        }
+        }}
 
         .stDeployButton, footer, header, [data-testid="stHeader"] {{ display: none !important; }}
         .block-container {{ padding-top: 3rem !important; max-width: 950px !important; }}
