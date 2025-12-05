@@ -28,13 +28,12 @@ MAX_FILE_SIZE_MB = 10
 ALLOWED_EXTENSIONS = ["xml"]
 
 # ==============================================================================
-# 2. TỪ ĐIỂN NGÔN NGỮ
+# 2. TỪ ĐIỂN NGÔN NGỮ (CẬP NHẬT THÊM THEME TEXT)
 # ==============================================================================
 LANG = {
     "vi": {
         "title": "Invoice Pipeline", "subtitle": "Hệ thống xử lý hóa đơn tự động & tối ưu thuế",
         "upload_lbl": "Tải lên file XML hóa đơn",
-        "drag_drop": "Kéo thả file vào đây",
         "list_header": "Danh sách file chờ xử lý",
         "btn_process": "🚀 Xử lý & Xuất Excel",
         "btn_clear": "Làm mới",
@@ -44,12 +43,12 @@ LANG = {
         "status_done": "Hoàn tất!",
         "status_empty": "Không có dữ liệu!",
         "status_fail": "Thất bại",
-        "col_file": "Tên File", "col_size": "Dung lượng"
+        "col_file": "Tên File", "col_size": "Dung lượng",
+        "theme_light": "Sáng", "theme_dark": "Tối" # Thêm text cho theme
     },
     "en": {
         "title": "Invoice Pipeline", "subtitle": "Automated Invoice Processing & Tax Optimization",
         "upload_lbl": "Upload XML Invoices",
-        "drag_drop": "Drag & Drop files here",
         "list_header": "Pending Files",
         "btn_process": "🚀 Process to Excel",
         "btn_clear": "Reset",
@@ -59,42 +58,35 @@ LANG = {
         "status_done": "Done!",
         "status_empty": "No data found!",
         "status_fail": "Failed",
-        "col_file": "Filename", "col_size": "Size"
+        "col_file": "Filename", "col_size": "Size",
+        "theme_light": "Light", "theme_dark": "Dark" # Thêm text cho theme
     }
 }
 T = LANG[st.session_state["lang_code"]]
 
 # ==============================================================================
-# 3. ULTRA-CONTRAST CSS ENGINE
+# 3. ULTRA-CONTRAST CSS ENGINE (GIỮ NGUYÊN ĐỂ ĐẢM BẢO TƯƠNG PHẢN)
 # ==============================================================================
 is_dark = st.session_state["theme_mode"] == "dark"
 
 # Cấu hình màu sắc ĐỐI LẬP HOÀN TOÀN (High Contrast)
 theme = {
-    # Nền Aurora: Dark thì nền cực tối, Light thì nền cực sáng để làm nổi chữ
     "bg_gradient": 
         "linear-gradient(to bottom right, #000000, #1a103c, #000000)" 
         if is_dark else 
         "linear-gradient(to bottom right, #ffffff, #e0e7ff, #f3f4f6)",
-    
-    # Kính: Dark mode kính đen mờ, Light mode kính trắng mờ
     "glass_bg": "rgba(20, 20, 20, 0.85)" if is_dark else "rgba(255, 255, 255, 0.9)",
     "glass_border": "rgba(255, 255, 255, 0.15)" if is_dark else "rgba(0, 0, 0, 0.05)",
     "glass_shadow": "0 8px 32px 0 rgba(0, 0, 0, 0.5)" if is_dark else "0 8px 32px 0 rgba(31, 38, 135, 0.07)",
-    
-    # Chữ: Dark mode dùng TRẮNG TINH (#FFF), Light mode dùng ĐEN TUYỀN (#000)
     "text_main": "#FFFFFF" if is_dark else "#111827",
-    "text_sub": "#cbd5e1" if is_dark else "#4b5563", # Màu phụ sáng hơn ở dark mode
-    
+    "text_sub": "#cbd5e1" if is_dark else "#4b5563",
     "accent": "#818cf8" if is_dark else "#4f46e5",
-    "btn_text": "#FFFFFF", # Chữ trên nút luôn trắng
 }
 
 st.markdown(f"""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
 
-        /* --- GLOBAL & TEXT RESET --- */
         .stApp {{
             background-image: {theme['bg_gradient']};
             background-attachment: fixed;
@@ -111,7 +103,6 @@ st.markdown(f"""
             color: {theme['text_sub']} !important;
         }}
 
-        /* Ẩn Header mặc định */
         .stDeployButton, footer, header, [data-testid="stHeader"] {{ display: none !important; }}
         
         .block-container {{
@@ -120,51 +111,42 @@ st.markdown(f"""
             max_width: 800px !important;
         }}
 
-        /* --- UPLOADER (HIGH CONTRAST) --- */
+        /* --- UPLOADER --- */
         [data-testid="stFileUploader"] {{
             background: {theme['glass_bg']};
-            border: 2px dashed {theme['accent']}; /* Viền đậm hơn */
+            border: 2px dashed {theme['accent']};
             border-radius: 16px;
             padding: 30px;
             box-shadow: {theme['glass_shadow']};
             backdrop-filter: blur(10px);
         }}
-        
-        /* Xử lý chữ trong Uploader - Cái này hay bị ẩn */
-        [data-testid="stFileUploader"] div, 
-        [data-testid="stFileUploader"] span,
-        [data-testid="stFileUploader"] small {{
-            color: {theme['text_main']} !important;
-        }}
-        [data-testid="stFileUploader"] svg {{
-            fill: {theme['accent']} !important;
-        }}
-        /* Nút Browse files bên trong uploader */
-        [data-testid="stFileUploader"] button {{
-            color: {theme['text_main']} !important;
-            border-color: {theme['text_main']} !important;
-        }}
+        [data-testid="stFileUploader"] div, [data-testid="stFileUploader"] span, [data-testid="stFileUploader"] small {{ color: {theme['text_main']} !important; }}
+        [data-testid="stFileUploader"] svg {{ fill: {theme['accent']} !important; }}
+        [data-testid="stFileUploader"] button {{ color: {theme['text_main']} !important; border-color: {theme['text_main']} !important; }}
 
-        /* --- BUTTONS --- */
+        /* --- BUTTONS PRIMARY (Xử lý, Tải xuống) --- */
         button[kind="primary"] {{
             background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             border: 0;
             border-radius: 10px;
-            color: #FFFFFF !important; /* Luôn trắng */
+            color: #FFFFFF !important; /* LUÔN TRẮNG */
             padding: 0.8rem 1.5rem;
-            font-weight: 700;
+            font-weight: 700; /* Đậm rõ */
             box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
             transition: transform 0.2s;
         }}
-        button[kind="primary"]:hover {{
-            transform: scale(1.02);
-        }}
+        button[kind="primary"]:hover {{ transform: scale(1.02); }}
         
-        /* Nút Secondary (Toggle/Refresh) */
+        /* Tăng độ đậm riêng cho nút Tải xuống nếu cần */
+        /* button[kind="primary"]:has(div:contains("TẢI FILE")) { font-weight: 800 !important; } */
+
+        /* --- BUTTONS SECONDARY (Control, Reset) --- */
         button[kind="secondary"] {{
             background: {theme['glass_bg']};
             border: 1px solid {theme['glass_border']};
             color: {theme['text_main']} !important;
+            border-radius: 10px;
+            font-weight: 600;
         }}
 
         /* --- DATAFRAME --- */
@@ -173,42 +155,25 @@ st.markdown(f"""
             border: 1px solid {theme['glass_border']};
             border-radius: 10px;
         }}
-        [data-testid="stDataFrame"] div {{
-            color: {theme['text_main']} !important;
-        }}
+        [data-testid="stDataFrame"] div {{ color: {theme['text_main']} !important; }}
 
-        /* --- TYPOGRAPHY EFFECTS --- */
+        /* --- TYPOGRAPHY --- */
         h1 {{
-            font-weight: 800 !important;
-            font-size: 3.2rem !important;
-            text-align: center;
-            margin-bottom: 0.5rem;
-            /* Text Shadow nhẹ để nổi trên nền gradient */
+            font-weight: 800 !important; font-size: 3.2rem !important;
+            text-align: center; margin-bottom: 0.5rem;
             text-shadow: 0 2px 20px rgba(0,0,0,0.2); 
         }}
-        
         .gradient-text {{
             background: linear-gradient(to right, #818cf8, #c084fc);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }}
-
         p.subtitle {{
-            text-align: center;
-            font-size: 1.2rem;
-            font-weight: 500;
-            margin-bottom: 3rem;
-            opacity: 0.9;
+            text-align: center; font-size: 1.2rem; font-weight: 500;
+            margin-bottom: 3rem; opacity: 0.9;
         }}
-
-        /* Footer */
         .custom-footer {{
-            text-align: center;
-            font-size: 0.8rem;
-            color: {theme['text_sub']} !important;
-            margin-top: 4rem;
-            border-top: 1px solid {theme['glass_border']};
-            padding-top: 20px;
+            text-align: center; font-size: 0.8rem; color: {theme['text_sub']} !important;
+            margin-top: 4rem; border-top: 1px solid {theme['glass_border']}; padding-top: 20px;
         }}
     </style>
 """, unsafe_allow_html=True)
@@ -216,6 +181,7 @@ st.markdown(f"""
 # ==============================================================================
 # 4. LOGIC LÕI (GIỮ NGUYÊN)
 # ==============================================================================
+# ... (Giữ nguyên các hàm _num, _find_key_recursive, _check_tag_exists_recursive, _get_value, _parse_invoice_data, _rows_from_invoice, _df_to_xlsx_stream như cũ) ...
 def _num(v: Any) -> float:
     if not v: return 0.0
     try:
@@ -263,11 +229,9 @@ def _parse_invoice_data(xml_bytes: bytes, filename: str) -> dict:
         doc = xmltodict.parse(xml_bytes)
         root_key = list(doc.keys())[0]
         hdon = doc[root_key]
-        
         is_dieuchinh = _check_tag_exists_recursive(hdon, ["TDieuChinh", "DieuChinh"])
         is_thaythe = _check_tag_exists_recursive(hdon, ["ThayThe"])
         note_str = "Hóa đơn điều chỉnh" if is_dieuchinh else ("Hóa đơn thay thế" if is_thaythe else "Hóa đơn mới")
-        
         invoice = {
             "KHMSHDon": _get_value(hdon, ["KHMSHDon", "MauSo"]),
             "KHHDon":   _get_value(hdon, ["KHHDon", "KyHieu"]),
@@ -380,23 +344,31 @@ def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
     return buf
 
 # ==============================================================================
-# 5. UI LAYOUT & CONTROL BAR (FLOATING STYLE)
+# 5. UI LAYOUT & CONTROL BAR (OPTIMIZED UX)
 # ==============================================================================
 
-# --- Control Bar ---
-# Dùng CSS để đẩy nút này lên góc đẹp hơn, nhưng ở đây dùng Columns cho ổn định
-col_logo, col_space, col_ctrl = st.columns([2, 4, 2])
+# --- Control Bar (Góc phải) ---
+col_logo, col_space, col_ctrl = st.columns([3, 3, 2])
 
 with col_ctrl:
-    c_sub1, c_sub2 = st.columns(2)
-    with c_sub1:
-        current_lang = st.session_state["lang_code"]
-        if st.button("VI / EN", key="btn_lang", use_container_width=True, type="secondary"):
+    # Sử dụng 2 cột đều nhau để nút có kích thước đồng nhất
+    c_lang, c_theme = st.columns(2)
+    
+    # --- Nút Ngôn ngữ (Chỉ hiện trạng thái hiện tại) ---
+    current_lang = st.session_state["lang_code"]
+    label_lang = "🇻🇳 VN" if current_lang == "vi" else "🇺🇸 EN"
+    with c_lang:
+        if st.button(label_lang, key="btn_lang", use_container_width=True, type="secondary"):
             st.session_state["lang_code"] = "en" if current_lang == "vi" else "vi"
             st.rerun()
-    with c_sub2:
-        current_theme = st.session_state["theme_mode"]
-        label_theme = "Lights Off" if current_theme == "light" else "Lights On"
+            
+    # --- Nút Giao diện (Hiện trạng thái hiện tại + Đa ngôn ngữ) ---
+    current_theme = st.session_state["theme_mode"]
+    # Lấy text Sáng/Tối dựa trên ngôn ngữ đang chọn
+    theme_text = T["theme_light"] if current_theme == "light" else T["theme_dark"]
+    label_theme = f"☀️ {theme_text}" if current_theme == "light" else f"🌙 {theme_text}"
+    
+    with c_theme:
         if st.button(label_theme, key="btn_theme", use_container_width=True, type="secondary"):
             st.session_state["theme_mode"] = "dark" if current_theme == "light" else "light"
             st.rerun()
@@ -414,7 +386,7 @@ uploaded_files = st.file_uploader(
     key="uploader"
 )
 
-# Xử lý Logic cộng dồn
+# Xử lý cộng dồn file
 if uploaded_files:
     store = st.session_state["uploads"]
     count_new = 0
@@ -430,20 +402,27 @@ if uploaded_files:
         time.sleep(0.5)
         st.rerun()
 
-# --- Dashboard View ---
+# --- Dashboard View (Khi có dữ liệu) ---
 if st.session_state["uploads"]:
-    st.markdown("###") # Spacer
+    # Tạo khoảng cách lớn hơn một chút để tách biệt với uploader
+    st.markdown("##") 
     
-    c1, c2 = st.columns([5, 3])
+    # Chia cột 5:3 cho Bảng và Nút bấm
+    c_table, c_actions = st.columns([5, 3])
     
-    with c1:
-        st.markdown(f"**{T['list_header']}** `({len(st.session_state['uploads'])})`")
+    with c_table:
+        # Tiêu đề bảng
+        st.markdown(f"### **{T['list_header']}** `({len(st.session_state['uploads'])})`")
+        # Bảng dữ liệu
         data_view = [{T["col_file"]: k, T["col_size"]: f"{v['size']/1024:.1f} KB"} 
                      for k,v in st.session_state["uploads"].items()]
         st.dataframe(data_view, use_container_width=True, hide_index=True, height=220)
     
-    with c2:
-        st.markdown("")
+    with c_actions:
+        # Spacer để căn chỉnh nút Xử lý ngang tầm với tiêu đề bảng bên cạnh
+        st.markdown("#") 
+        
+        # Nút Xử lý (Primary - Chữ trắng)
         if st.button(T["btn_process"], type="primary", use_container_width=True):
             with st.status(T["status_process"], expanded=True) as status:
                 try:
@@ -471,16 +450,18 @@ if st.session_state["uploads"]:
                     st.error(f"{T['status_fail']}: {str(e)}")
                     status.update(label=T["status_fail"], state="error")
         
+        # Nút Làm mới (Secondary - Nằm dưới nút xử lý)
         if st.button(T["btn_clear"], use_container_width=True, type="secondary"):
             st.session_state["uploads"].clear()
             st.session_state["result_bytes"] = None
             st.rerun()
 
-    # Download Button
+    # Download Button (Nổi bật ở dưới cùng)
     if st.session_state.get("result_bytes"):
         st.markdown("---")
-        c_center = st.columns([1, 2, 1])
+        c_center = st.columns([1, 2, 1]) # Căn giữa nút tải xuống
         with c_center[1]:
+            # Nút Tải xuống (Primary - Chữ trắng, đậm)
             st.download_button(
                 label=T["btn_dl"],
                 data=st.session_state["result_bytes"],
@@ -491,4 +472,4 @@ if st.session_state["uploads"]:
             )
 
 # Footer
-st.markdown('<div class="custom-footer">© 2025 Chuong Minh - Automation Solutions | Optimized For Performance. </div>', unsafe_allow_html=True)
+st.markdown('<div class="custom-footer">© 2025 Invoice Pipeline Pro | Crafted with ❤️</div>', unsafe_allow_html=True)
