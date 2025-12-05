@@ -28,7 +28,7 @@ MAX_FILE_SIZE_MB = 10
 ALLOWED_EXTENSIONS = ["xml"]
 
 # ==============================================================================
-# 2. TỪ ĐIỂN NGÔN NGỮ (CẬP NHẬT THÊM THEME TEXT)
+# 2. TỪ ĐIỂN NGÔN NGỮ
 # ==============================================================================
 LANG = {
     "vi": {
@@ -44,7 +44,7 @@ LANG = {
         "status_empty": "Không có dữ liệu!",
         "status_fail": "Thất bại",
         "col_file": "Tên File", "col_size": "Dung lượng",
-        "theme_light": "Sáng", "theme_dark": "Tối" # Thêm text cho theme
+        "theme_light": "Sáng", "theme_dark": "Tối"
     },
     "en": {
         "title": "Invoice Pipeline", "subtitle": "Automated Invoice Processing & Tax Optimization",
@@ -59,17 +59,17 @@ LANG = {
         "status_empty": "No data found!",
         "status_fail": "Failed",
         "col_file": "Filename", "col_size": "Size",
-        "theme_light": "Light", "theme_dark": "Dark" # Thêm text cho theme
+        "theme_light": "Light", "theme_dark": "Dark"
     }
 }
 T = LANG[st.session_state["lang_code"]]
 
 # ==============================================================================
-# 3. ULTRA-CONTRAST CSS ENGINE (GIỮ NGUYÊN ĐỂ ĐẢM BẢO TƯƠNG PHẢN)
+# 3. ULTRA-CONTRAST CSS ENGINE
 # ==============================================================================
 is_dark = st.session_state["theme_mode"] == "dark"
 
-# Cấu hình màu sắc ĐỐI LẬP HOÀN TOÀN (High Contrast)
+# Cấu hình màu sắc
 theme = {
     "bg_gradient": 
         "linear-gradient(to bottom right, #000000, #1a103c, #000000)" 
@@ -131,14 +131,11 @@ st.markdown(f"""
             border-radius: 10px;
             color: #FFFFFF !important; /* LUÔN TRẮNG */
             padding: 0.8rem 1.5rem;
-            font-weight: 700; /* Đậm rõ */
+            font-weight: 700;
             box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
             transition: transform 0.2s;
         }}
         button[kind="primary"]:hover {{ transform: scale(1.02); }}
-        
-        /* Tăng độ đậm riêng cho nút Tải xuống nếu cần */
-        /* button[kind="primary"]:has(div:contains("TẢI FILE")) { font-weight: 800 !important; } */
 
         /* --- BUTTONS SECONDARY (Control, Reset) --- */
         button[kind="secondary"] {{
@@ -179,9 +176,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 4. LOGIC LÕI (GIỮ NGUYÊN)
+# 4. LOGIC LÕI
 # ==============================================================================
-# ... (Giữ nguyên các hàm _num, _find_key_recursive, _check_tag_exists_recursive, _get_value, _parse_invoice_data, _rows_from_invoice, _df_to_xlsx_stream như cũ) ...
 def _num(v: Any) -> float:
     if not v: return 0.0
     try:
@@ -344,17 +340,16 @@ def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
     return buf
 
 # ==============================================================================
-# 5. UI LAYOUT & CONTROL BAR (OPTIMIZED UX)
+# 5. UI LAYOUT & CONTROL BAR
 # ==============================================================================
 
-# --- Control Bar (Góc phải) ---
+# --- Control Bar ---
 col_logo, col_space, col_ctrl = st.columns([3, 3, 2])
 
 with col_ctrl:
-    # Sử dụng 2 cột đều nhau để nút có kích thước đồng nhất
     c_lang, c_theme = st.columns(2)
     
-    # --- Nút Ngôn ngữ (Chỉ hiện trạng thái hiện tại) ---
+    # Lang Button
     current_lang = st.session_state["lang_code"]
     label_lang = "🇻🇳 VN" if current_lang == "vi" else "🇺🇸 EN"
     with c_lang:
@@ -362,12 +357,10 @@ with col_ctrl:
             st.session_state["lang_code"] = "en" if current_lang == "vi" else "vi"
             st.rerun()
             
-    # --- Nút Giao diện (Hiện trạng thái hiện tại + Đa ngôn ngữ) ---
+    # Theme Button
     current_theme = st.session_state["theme_mode"]
-    # Lấy text Sáng/Tối dựa trên ngôn ngữ đang chọn
     theme_text = T["theme_light"] if current_theme == "light" else T["theme_dark"]
     label_theme = f"☀️ {theme_text}" if current_theme == "light" else f"🌙 {theme_text}"
-    
     with c_theme:
         if st.button(label_theme, key="btn_theme", use_container_width=True, type="secondary"):
             st.session_state["theme_mode"] = "dark" if current_theme == "light" else "light"
@@ -386,7 +379,6 @@ uploaded_files = st.file_uploader(
     key="uploader"
 )
 
-# Xử lý cộng dồn file
 if uploaded_files:
     store = st.session_state["uploads"]
     count_new = 0
@@ -402,27 +394,22 @@ if uploaded_files:
         time.sleep(0.5)
         st.rerun()
 
-# --- Dashboard View (Khi có dữ liệu) ---
+# --- Dashboard View ---
 if st.session_state["uploads"]:
-    # Tạo khoảng cách lớn hơn một chút để tách biệt với uploader
     st.markdown("##") 
     
-    # Chia cột 5:3 cho Bảng và Nút bấm
     c_table, c_actions = st.columns([5, 3])
     
     with c_table:
-        # Tiêu đề bảng
         st.markdown(f"### **{T['list_header']}** `({len(st.session_state['uploads'])})`")
-        # Bảng dữ liệu
         data_view = [{T["col_file"]: k, T["col_size"]: f"{v['size']/1024:.1f} KB"} 
                      for k,v in st.session_state["uploads"].items()]
         st.dataframe(data_view, use_container_width=True, hide_index=True, height=220)
     
     with c_actions:
-        # Spacer để căn chỉnh nút Xử lý ngang tầm với tiêu đề bảng bên cạnh
         st.markdown("#") 
         
-        # Nút Xử lý (Primary - Chữ trắng)
+        # Process Button
         if st.button(T["btn_process"], type="primary", use_container_width=True):
             with st.status(T["status_process"], expanded=True) as status:
                 try:
@@ -450,18 +437,17 @@ if st.session_state["uploads"]:
                     st.error(f"{T['status_fail']}: {str(e)}")
                     status.update(label=T["status_fail"], state="error")
         
-        # Nút Làm mới (Secondary - Nằm dưới nút xử lý)
+        # Clear Button
         if st.button(T["btn_clear"], use_container_width=True, type="secondary"):
             st.session_state["uploads"].clear()
             st.session_state["result_bytes"] = None
             st.rerun()
 
-    # Download Button (Nổi bật ở dưới cùng)
+    # Download Button
     if st.session_state.get("result_bytes"):
         st.markdown("---")
-        c_center = st.columns([1, 2, 1]) # Căn giữa nút tải xuống
+        c_center = st.columns([1, 2, 1])
         with c_center[1]:
-            # Nút Tải xuống (Primary - Chữ trắng, đậm)
             st.download_button(
                 label=T["btn_dl"],
                 data=st.session_state["result_bytes"],
