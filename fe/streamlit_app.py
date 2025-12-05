@@ -217,7 +217,7 @@ def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
     return buf
 
 # ==============================================================================
-# 3. QUIET LUXURY UI (CLOUD DANCER) - BOLD BUTTONS
+# 3. QUIET LUXURY UI (CLOUD DANCER) - FIXED FULL
 # ==============================================================================
 LANG = {
     "vi": {
@@ -247,7 +247,9 @@ T = LANG[st.session_state["lang_code"]]
 
 is_dark = st.session_state["theme_mode"] == "dark"
 
+# --- COLOR PALETTE DEFINITION ---
 c_bg_light = "#F7F6F3"
+c_bg_dark = "#1d1a14"       # <--- ĐÃ THÊM BIẾN BỊ THIẾU
 c_glass_light = "rgba(255, 255, 255, 0.65)"
 c_glass_dark = "rgba(40, 35, 30, 0.7)"
 c_text_light = "#574f3c"
@@ -305,28 +307,26 @@ st.markdown(f"""
             background: {c_glass_dark if is_dark else "rgba(255,255,255,0.4)"};
         }}
         
-/* --- BUTTON STYLING (FIX: EXTRA BOLD & DOWNLOAD BUTTON) --- */
+        /* --- BUTTON STYLING (FIXED: BOLD & VARS) --- */
         
-        /* 1. Target chung cho cả Nút thường (stButton) và Nút tải về (stDownloadButton) */
+        /* 1. Target chung */
         div[data-testid="stButton"] button, 
         div[data-testid="stDownloadButton"] button {{
-            font-weight: 800 !important; /* ExtraBold */
+            font-weight: 800 !important;
             font-family: 'Manrope', sans-serif !important;
             letter-spacing: 0.04em !important;
             font-size: 1rem !important;
             transition: all 0.2s ease-in-out !important;
         }}
-
-        /* 2. Đảm bảo text bên trong (thẻ p) cũng dính style đậm */
+        
         div[data-testid="stButton"] button p, 
         div[data-testid="stDownloadButton"] button p {{
             font-weight: 800 !important;
         }}
 
-        /* 3. Style cho Nút Chính (Primary) - Xử lý & Tải về */
+        /* 2. Primary Button (Xử lý & Tải về) */
         div[data-testid="stButton"] button[kind="primary"],
         div[data-testid="stDownloadButton"] button[kind="primary"] {{
-            /* Fix màu tương phản: Dark mode dùng nền sáng chữ tối, Light mode dùng nền tối chữ trắng */
             background: {c_text_dark if is_dark else "#3a3528"} !important; 
             color: {c_bg_dark if is_dark else "#ffffff"} !important; 
             border: none !important;
@@ -334,8 +334,8 @@ st.markdown(f"""
             padding: 0.75rem 1.5rem !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
         }}
-
-        /* 4. Style cho Nút Phụ (Secondary) - Làm mới */
+        
+        /* 3. Secondary Button (Reset) */
         div[data-testid="stButton"] button[kind="secondary"] {{
             background: transparent !important;
             color: {c_text_dark if is_dark else c_text_light} !important;
@@ -343,7 +343,7 @@ st.markdown(f"""
             border-radius: 12px !important;
         }}
         
-        /* 5. Hiệu ứng Hover */
+        /* 4. Hover Effect */
         div[data-testid="stButton"] button:hover,
         div[data-testid="stDownloadButton"] button:hover {{
             transform: translateY(-2px);
@@ -355,110 +355,6 @@ st.markdown(f"""
         .block-container {{ padding-top: 3rem !important; max-width: 950px !important; }}
     </style>
 """, unsafe_allow_html=True)
-
-# ==============================================================================
-# 4. DASHBOARD & FLOW
-# ==============================================================================
-
-c1, c2, c3 = st.columns([6, 1, 1])
-with c2:
-    if st.button("VN/EN", key="lang", type="secondary", use_container_width=True):
-        st.session_state["lang_code"] = "en" if st.session_state["lang_code"] == "vi" else "vi"
-        st.rerun()
-with c3:
-    if st.button("🌗", key="theme", type="secondary", use_container_width=True):
-        st.session_state["theme_mode"] = "dark" if st.session_state["theme_mode"] == "light" else "light"
-        st.rerun()
-
-st.markdown(f"<h1 style='text-align: center; margin-bottom: 0;'>Invoice Pipeline <span class='pro-badge'>Pro</span></h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='text-align: center; color: {c_accent}; margin-bottom: 3rem;'>{T['subtitle']}</p>", unsafe_allow_html=True)
-
-uploaded_files = st.file_uploader(
-    label=T["upload_lbl"],
-    type=ALLOWED_EXTENSIONS,
-    accept_multiple_files=True,
-    label_visibility="visible" 
-)
-
-# Lazy Loading: Kiểm tra file đã có trong session chưa trước khi thêm
-if uploaded_files:
-    store = st.session_state["uploads"]
-    count_new = 0
-    for f in uploaded_files:
-        if len(store) >= MAX_FILES_ALLOWED: break
-        if f.name not in store:
-            if f.size <= MAX_FILE_SIZE_MB * 1024 * 1024:
-                store[f.name] = {"data": f.read(), "size": f.size}
-                count_new += 1
-    if count_new > 0: 
-        st.toast(T["toast_add"], icon="✨")
-        time.sleep(0.5)
-        st.rerun()
-
-if st.session_state["uploads"]:
-    st.write("") 
-    st.write("") 
-    
-    col_list, col_action = st.columns([2, 1], gap="large")
-    
-    with col_list:
-        st.markdown(f"**{T['list_header']}** ({len(st.session_state['uploads'])})")
-        data_view = [{T["col_file"]: k, T["col_size"]: f"{v['size']/1024:.1f} KB"} for k,v in st.session_state["uploads"].items()]
-        st.dataframe(data_view, use_container_width=True, hide_index=True, height=250)
-
-    with col_action:
-        st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True) 
-        
-        if st.button(T["btn_process"], type="primary", use_container_width=True):
-            with st.status(T["status_process"], expanded=True) as status:
-                try:
-                    all_rows = []
-                    files = st.session_state["uploads"]
-                    total = len(files)
-                    bar = st.progress(0)
-                    
-                    for idx, (fname, fcontent) in enumerate(files.items()):
-                        inv_data = _parse_invoice_data(fcontent["data"], fname)
-                        rows = _rows_from_invoice(inv_data)
-                        if rows: all_rows.extend(rows)
-                        bar.progress((idx + 1) / total)
-                    
-                    if all_rows:
-                        excel_buffer = _df_to_xlsx_stream(all_rows)
-                        st.session_state["result_bytes"] = excel_buffer.getvalue()
-                        st.session_state["result_mime"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        status.update(label=T["status_done"], state="complete", expanded=False)
-                    else:
-                        status.update(label=T["status_empty"], state="error")
-                except Exception as e:
-                    st.error(f"{T['status_fail']}: {str(e)}")
-                    status.update(label=T["status_fail"], state="error")
-        
-        if st.button(T["btn_clear"], type="secondary", use_container_width=True):
-            st.session_state["uploads"] = {}
-            st.session_state["result_bytes"] = None
-            st.rerun()
-
-    if st.session_state.get("result_bytes"):
-        st.markdown("---")
-        c_dl_1, c_dl_2, c_dl_3 = st.columns([1, 2, 1])
-        with c_dl_2:
-            st.download_button(
-                label=f"📥 {T['btn_dl']}",
-                data=st.session_state["result_bytes"],
-                file_name=f"Invoice_Result_{int(time.time())}.xlsx",
-                mime=st.session_state["result_mime"],
-                type="primary",
-                use_container_width=True
-            )
-
-else:
-    st.markdown(f"""
-    <div style="text-align:center; padding: 5rem 2rem; color: {c_accent}; opacity: 0.6;">
-        <div style="font-size: 3rem; margin-bottom: 1rem;">🍂</div>
-        <div style="font-weight: 500;">{T['status_empty']}</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 st.markdown(f"""
 <div style="text-align: center; margin-top: 5rem; font-size: 0.8rem; color: {c_border_dark if is_dark else "#b0a895"};">
