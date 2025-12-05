@@ -521,6 +521,6 @@ else:
 # Footer
 st.markdown(f"""
 <div style="text-align: center; margin-top: 5rem; font-size: 0.8rem; color: {c_border_dark if is_dark else "#b0a895"};">
-    © 2026 Invoice Pipeline Pro | Quiet Luxury Edition | v2.1.0 Stable
+    © 2026 Chuong Minh - Automation Solutions Engineer | Optimized for performance.
 </div>
 """, unsafe_allow_html=True)
