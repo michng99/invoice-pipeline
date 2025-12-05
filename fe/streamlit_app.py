@@ -307,7 +307,7 @@ st.markdown(f"""
         
         /* --- BUTTON STYLING (FIX: BOLD) --- */
         div[data-testid="stButton"] button {{
-            font-weight: 700 !important;
+            font-weight: 800 !important;
             letter-spacing: 0.02em;
             font-size: 1rem !important;
         }}
