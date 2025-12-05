@@ -22,17 +22,16 @@ if "result_mime" not in st.session_state: st.session_state["result_mime"] = None
 if "lang_code" not in st.session_state: st.session_state["lang_code"] = "vi"
 if "theme_mode" not in st.session_state: st.session_state["theme_mode"] = "light"
 
-# Constants (Bảo mật & Giới hạn tải)
+# Constants
 MAX_FILES_ALLOWED = 50        
 MAX_FILE_SIZE_MB = 10        
 ALLOWED_EXTENSIONS = ["xml"]
 
 # ==============================================================================
-# 2. LOGIC XỬ LÝ (CORE LOGIC - 100% ORIGINAL)
+# 2. LOGIC XỬ LÝ (GIỮ NGUYÊN LOGIC GỐC)
 # ==============================================================================
 
 def _num(v: Any) -> float:
-    """Chuyển đổi chuỗi số (có dấu phẩy/chấm) sang float chuẩn"""
     if not v: return 0.0
     try:
         s = str(v).strip()
@@ -44,7 +43,6 @@ def _num(v: Any) -> float:
     except: return 0.0
 
 def _find_key_recursive(obj: Any, targets: List[str]) -> Any:
-    """Đệ quy tìm key trong cấu trúc XML lồng nhau"""
     if isinstance(obj, dict):
         for k, v in obj.items():
             if k.split(":")[-1] in targets and v is not None: return v
@@ -58,7 +56,6 @@ def _find_key_recursive(obj: Any, targets: List[str]) -> Any:
     return None
 
 def _check_tag_exists_recursive(obj: Any, targets: List[str]) -> bool:
-    """Kiểm tra tag tồn tại để phân loại hóa đơn"""
     if isinstance(obj, dict):
         for k in obj.keys():
             if k.split(":")[-1] in targets: return True
@@ -70,7 +67,6 @@ def _check_tag_exists_recursive(obj: Any, targets: List[str]) -> bool:
     return False
 
 def _get_value(obj: dict, targets: List[str]) -> str:
-    """Lấy giá trị an toàn"""
     val = _find_key_recursive(obj, targets)
     if val:
         if isinstance(val, (dict, list)): return "" 
@@ -78,7 +74,6 @@ def _get_value(obj: dict, targets: List[str]) -> str:
     return ""
 
 def _parse_invoice_data(xml_bytes: bytes, filename: str) -> dict:
-    """Phân tích XML thành Dict phẳng"""
     try:
         doc = xmltodict.parse(xml_bytes)
         root_key = list(doc.keys())[0]
@@ -128,7 +123,6 @@ def _parse_invoice_data(xml_bytes: bytes, filename: str) -> dict:
     except Exception: return {}
 
 def _rows_from_invoice(inv: dict) -> List[dict]:
-    """Tính toán logic thuế và tạo dòng dữ liệu Excel"""
     if not inv: return []
     try:
         header_info = {
@@ -150,11 +144,9 @@ def _rows_from_invoice(inv: dict) -> List[dict]:
             sl = _num(it["SLuong"])
             dg = _num(it["DGia"])
             
-            # Logic Thành tiền: Nếu không có thì tự tính
             tht_raw = it["ThTien"]
             tht = _num(tht_raw) if tht_raw else (sl * dg)
             
-            # Logic Thuế suất (QUAN TRỌNG)
             ts_raw = str(it["TSuat"]).strip().upper()
             rate_val = 0.0
             ts_display = ts_raw
@@ -171,7 +163,6 @@ def _rows_from_invoice(inv: dict) -> List[dict]:
                     else: rate_val = val_check / 100; ts_display = f"{ts_raw}%"
                 except: rate_val = 0.0
             
-            # Tính VAT và Tổng tiền
             vat = round(tht * rate_val, 0)
             total = tht + vat
             
@@ -187,7 +178,6 @@ def _rows_from_invoice(inv: dict) -> List[dict]:
     except Exception: return []
 
 def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
-    """Xuất Excel với định dạng chuẩn"""
     if not rows: return None
     COLUMN_ORDER = ["Mẫu số", "KH hóa đơn", "Số hóa đơn", "Ngày hóa đơn", "MST người bán", "Tên người bán", "ĐC người bán", "Mã hàng", "Tên hàng", "Đơn vị tính", "Số lượng", "Đơn giá", "Tiền hàng", "Thuế suất", "Tiền thuế", "Cộng tiền", "Ghi chú", "Đơn vị tiền", "Tỷ giá", "Cờ (Tchat)"]
     df = pd.DataFrame(rows)
@@ -217,7 +207,7 @@ def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
     return buf
 
 # ==============================================================================
-# 3. QUIET LUXURY UI (CLOUD DANCER) - FIXED FULL
+# 3. QUIET LUXURY UI (CLOUD DANCER) - FIXED & BOLD
 # ==============================================================================
 LANG = {
     "vi": {
@@ -249,7 +239,7 @@ is_dark = st.session_state["theme_mode"] == "dark"
 
 # --- COLOR PALETTE DEFINITION ---
 c_bg_light = "#F7F6F3"
-c_bg_dark = "#1d1a14"       # <--- ĐÃ THÊM BIẾN BỊ THIẾU
+c_bg_dark = "#1d1a14"       # Biến màu nền tối
 c_glass_light = "rgba(255, 255, 255, 0.65)"
 c_glass_dark = "rgba(40, 35, 30, 0.7)"
 c_text_light = "#574f3c"
@@ -307,26 +297,22 @@ st.markdown(f"""
             background: {c_glass_dark if is_dark else "rgba(255,255,255,0.4)"};
         }}
         
-        /* --- BUTTON STYLING (FIXED: BOLD & VARS) --- */
+        /* --- BUTTON STYLING (FIX: EXTRA BOLD & CONTRAST) --- */
         
-        /* 1. Target chung */
+        /* 1. Target chung cho Button & Download Button */
         div[data-testid="stButton"] button, 
         div[data-testid="stDownloadButton"] button {{
-            font-weight: 800 !important;
+            font-weight: 800 !important; /* ExtraBold */
             font-family: 'Manrope', sans-serif !important;
             letter-spacing: 0.04em !important;
             font-size: 1rem !important;
             transition: all 0.2s ease-in-out !important;
         }}
-        
-        div[data-testid="stButton"] button p, 
-        div[data-testid="stDownloadButton"] button p {{
-            font-weight: 800 !important;
-        }}
 
-        /* 2. Primary Button (Xử lý & Tải về) */
+        /* 2. Style cho Nút Chính (Primary) */
         div[data-testid="stButton"] button[kind="primary"],
         div[data-testid="stDownloadButton"] button[kind="primary"] {{
+            /* Logic đảo màu tương phản: Dark Mode -> Nền sáng/Chữ tối; Light Mode -> Nền tối/Chữ trắng */
             background: {c_text_dark if is_dark else "#3a3528"} !important; 
             color: {c_bg_dark if is_dark else "#ffffff"} !important; 
             border: none !important;
@@ -335,7 +321,7 @@ st.markdown(f"""
             box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
         }}
         
-        /* 3. Secondary Button (Reset) */
+        /* 3. Style cho Nút Phụ (Secondary) */
         div[data-testid="stButton"] button[kind="secondary"] {{
             background: transparent !important;
             color: {c_text_dark if is_dark else c_text_light} !important;
@@ -356,8 +342,111 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
+# ==============================================================================
+# 4. DASHBOARD & FLOW
+# ==============================================================================
+
+c1, c2, c3 = st.columns([6, 1, 1])
+with c2:
+    if st.button("VN/EN", key="lang", type="secondary", use_container_width=True):
+        st.session_state["lang_code"] = "en" if st.session_state["lang_code"] == "vi" else "vi"
+        st.rerun()
+with c3:
+    if st.button("🌗", key="theme", type="secondary", use_container_width=True):
+        st.session_state["theme_mode"] = "dark" if st.session_state["theme_mode"] == "light" else "light"
+        st.rerun()
+
+st.markdown(f"<h1 style='text-align: center; margin-bottom: 0;'>Invoice Pipeline <span class='pro-badge'>Pro</span></h1>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align: center; color: {c_accent}; margin-bottom: 3rem;'>{T['subtitle']}</p>", unsafe_allow_html=True)
+
+uploaded_files = st.file_uploader(
+    label=T["upload_lbl"],
+    type=ALLOWED_EXTENSIONS,
+    accept_multiple_files=True,
+    label_visibility="visible" 
+)
+
+if uploaded_files:
+    store = st.session_state["uploads"]
+    count_new = 0
+    for f in uploaded_files:
+        if len(store) >= MAX_FILES_ALLOWED: break
+        if f.name not in store:
+            if f.size <= MAX_FILE_SIZE_MB * 1024 * 1024:
+                store[f.name] = {"data": f.read(), "size": f.size}
+                count_new += 1
+    if count_new > 0: 
+        st.toast(T["toast_add"], icon="✨")
+        time.sleep(0.5)
+        st.rerun()
+
+if st.session_state["uploads"]:
+    st.write("") 
+    st.write("") 
+    
+    col_list, col_action = st.columns([2, 1], gap="large")
+    
+    with col_list:
+        st.markdown(f"**{T['list_header']}** ({len(st.session_state['uploads'])})")
+        data_view = [{T["col_file"]: k, T["col_size"]: f"{v['size']/1024:.1f} KB"} for k,v in st.session_state["uploads"].items()]
+        st.dataframe(data_view, use_container_width=True, hide_index=True, height=250)
+
+    with col_action:
+        st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True) 
+        
+        if st.button(T["btn_process"], type="primary", use_container_width=True):
+            with st.status(T["status_process"], expanded=True) as status:
+                try:
+                    all_rows = []
+                    files = st.session_state["uploads"]
+                    total = len(files)
+                    bar = st.progress(0)
+                    
+                    for idx, (fname, fcontent) in enumerate(files.items()):
+                        inv_data = _parse_invoice_data(fcontent["data"], fname)
+                        rows = _rows_from_invoice(inv_data)
+                        if rows: all_rows.extend(rows)
+                        bar.progress((idx + 1) / total)
+                    
+                    if all_rows:
+                        excel_buffer = _df_to_xlsx_stream(all_rows)
+                        st.session_state["result_bytes"] = excel_buffer.getvalue()
+                        st.session_state["result_mime"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        status.update(label=T["status_done"], state="complete", expanded=False)
+                    else:
+                        status.update(label=T["status_empty"], state="error")
+                except Exception as e:
+                    st.error(f"{T['status_fail']}: {str(e)}")
+                    status.update(label=T["status_fail"], state="error")
+        
+        if st.button(T["btn_clear"], type="secondary", use_container_width=True):
+            st.session_state["uploads"] = {}
+            st.session_state["result_bytes"] = None
+            st.rerun()
+
+    if st.session_state.get("result_bytes"):
+        st.markdown("---")
+        c_dl_1, c_dl_2, c_dl_3 = st.columns([1, 2, 1])
+        with c_dl_2:
+            st.download_button(
+                label=f"📥 {T['btn_dl']}",
+                data=st.session_state["result_bytes"],
+                file_name=f"Invoice_Result_{int(time.time())}.xlsx",
+                mime=st.session_state["result_mime"],
+                type="primary",
+                use_container_width=True
+            )
+
+else:
+    st.markdown(f"""
+    <div style="text-align:center; padding: 5rem 2rem; color: {c_accent}; opacity: 0.6;">
+        <div style="font-size: 3rem; margin-bottom: 1rem;">🍂</div>
+        <div style="font-weight: 500;">{T['status_empty']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
 st.markdown(f"""
 <div style="text-align: center; margin-top: 5rem; font-size: 0.8rem; color: {c_border_dark if is_dark else "#b0a895"};">
-    © 2026 Chuong Minh - Automation Solutions Engineer | Optimized for performance.
+    © 2026 Invoice Pipeline Pro | Quiet Luxury Edition | v3.0 Final Stable
 </div>
 """, unsafe_allow_html=True)
