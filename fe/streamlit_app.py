@@ -44,7 +44,7 @@ LANG = {
         "status_empty": "Không có dữ liệu!",
         "status_fail": "Thất bại",
         "col_file": "Tên File", "col_size": "Dung lượng",
-        "theme_light": "Sáng", "theme_dark": "Tối"
+        "theme_light": "Sáng", "theme_dark": "Tối" 
     },
     "en": {
         "title": "Invoice Pipeline", "subtitle": "Automated Invoice Processing & Tax Optimization",
@@ -65,11 +65,10 @@ LANG = {
 T = LANG[st.session_state["lang_code"]]
 
 # ==============================================================================
-# 3. ULTRA-CONTRAST CSS ENGINE
+# 3. ULTRA-CONTRAST CSS ENGINE (FIXED COLOR & LAYOUT)
 # ==============================================================================
 is_dark = st.session_state["theme_mode"] == "dark"
 
-# Cấu hình màu sắc
 theme = {
     "bg_gradient": 
         "linear-gradient(to bottom right, #000000, #1a103c, #000000)" 
@@ -120,20 +119,33 @@ st.markdown(f"""
             box-shadow: {theme['glass_shadow']};
             backdrop-filter: blur(10px);
         }}
-        [data-testid="stFileUploader"] div, [data-testid="stFileUploader"] span, [data-testid="stFileUploader"] small {{ color: {theme['text_main']} !important; }}
+        /* Ép màu chữ trong uploader */
+        [data-testid="stFileUploader"] * {{ color: {theme['text_main']} !important; }}
         [data-testid="stFileUploader"] svg {{ fill: {theme['accent']} !important; }}
-        [data-testid="stFileUploader"] button {{ color: {theme['text_main']} !important; border-color: {theme['text_main']} !important; }}
+        [data-testid="stFileUploader"] button {{ 
+            color: {theme['text_main']} !important; 
+            border-color: {theme['text_main']} !important; 
+        }}
+
+        /* --- BUTTONS GENERAL --- */
+        button {{
+            white-space: nowrap !important; /* CHỐNG XUỐNG DÒNG */
+            min-height: 45px !important;
+        }}
 
         /* --- BUTTONS PRIMARY (Xử lý, Tải xuống) --- */
         button[kind="primary"] {{
             background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             border: 0;
             border-radius: 10px;
-            color: #FFFFFF !important; /* LUÔN TRẮNG */
             padding: 0.8rem 1.5rem;
-            font-weight: 700;
             box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
             transition: transform 0.2s;
+        }}
+        /* ÉP MÀU TRẮNG TUYỆT ĐỐI CHO TEXT TRONG NÚT PRIMARY */
+        button[kind="primary"] * {{
+            color: #FFFFFF !important;
+            font-weight: 700 !important;
         }}
         button[kind="primary"]:hover {{ transform: scale(1.02); }}
 
@@ -145,6 +157,10 @@ st.markdown(f"""
             border-radius: 10px;
             font-weight: 600;
         }}
+        /* Ép màu chữ nút Secondary */
+        button[kind="secondary"] * {{
+            color: {theme['text_main']} !important;
+        }}
 
         /* --- DATAFRAME --- */
         [data-testid="stDataFrame"] {{
@@ -152,7 +168,7 @@ st.markdown(f"""
             border: 1px solid {theme['glass_border']};
             border-radius: 10px;
         }}
-        [data-testid="stDataFrame"] div {{ color: {theme['text_main']} !important; }}
+        [data-testid="stDataFrame"] * {{ color: {theme['text_main']} !important; }}
 
         /* --- TYPOGRAPHY --- */
         h1 {{
@@ -344,7 +360,8 @@ def _df_to_xlsx_stream(rows: List[dict]) -> io.BytesIO:
 # ==============================================================================
 
 # --- Control Bar ---
-col_logo, col_space, col_ctrl = st.columns([3, 3, 2])
+# Điều chỉnh tỷ lệ cột: 4-1-3 để phần Control rộng hơn, nút không bị xuống dòng
+col_logo, col_space, col_ctrl = st.columns([4, 1, 3])
 
 with col_ctrl:
     c_lang, c_theme = st.columns(2)
