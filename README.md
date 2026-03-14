@@ -4,7 +4,7 @@ A practical document-processing pipeline to **batch convert multiple e-invoice X
 Built with **FastAPI (backend APIs)** + **Streamlit (web UI)**. Initially deployed on **GCP (Cloud Run)**, later migrated UI hosting to **Streamlit Community Cloud** for cost efficiency.
 
 > Repo: https://github.com/michng99/invoice-pipeline  
-> Demo: https://xulydulieu.streamlit.app *(if demo is gated, add a short video demo link here)*
+> Demo: https://xulydulieu.streamlit.app
 
 ---
 
