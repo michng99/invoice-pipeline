@@ -119,4 +119,4 @@ To match an AI-first engineering workflow:
 ---
 
 ## License
-Choose a license if you want (MIT is common). Otherwise, remove this section.
+All rights reserved. 
